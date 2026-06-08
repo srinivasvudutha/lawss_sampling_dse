@@ -283,7 +283,7 @@ class Drone:
             dist      = float(np.linalg.norm(direction))
             if dist > 1e-3:
                 unit     = direction / dist
-                cruise_v = unit * min(V_MAX * 0.5, dist / (MPC_N * DT))
+                cruise_v = unit * min(dyn_v_bound * 0.9, dist / (MPC_N * DT))
             else:
                 unit     = np.zeros(3)
                 cruise_v = np.zeros(3)

@@ -92,7 +92,7 @@ MAX_SAMPLING_TIME_S: float = 180.0    # 3-min hard cap per run
 
 MPC_N:    int   = 20
 V_MAX:    float = 14.0    # max velocity per axis [m/s]
-A_MAX:    float = 5.0
+A_MAX:    float = 8.0
 D_MIN:    float = 3.0
 N_OBS:    int   = 9
 MASS:     float = 3.645   # [kg] Drone mass
@@ -401,7 +401,7 @@ class Drone:
             dist      = float(np.linalg.norm(direction))
             if dist > 1e-3:
                 unit     = direction / dist
-                cruise_v = unit * min(V_MAX * 0.5, dist / (MPC_N * DT))
+                cruise_v = unit * min(dyn_v_bound * 0.9, dist / (MPC_N * DT))
             else:
                 unit     = np.zeros(3)
                 cruise_v = np.zeros(3)
