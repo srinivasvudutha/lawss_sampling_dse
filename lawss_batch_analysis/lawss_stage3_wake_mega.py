@@ -86,10 +86,11 @@ MAX_SAMPLING_TIME_S: float = 180.0    # 3-min hard cap per run (unchanged)
 # ─────────────────────────────────────────────────────────────────────────────
 
 MPC_N:    int   = 20
-V_MAX:    float = 5.0
+V_MAX:    float = 14.0    # max velocity per axis [m/s]  ← updated from 5.0
 A_MAX:    float = 2.0
 D_MIN:    float = 3.0
 N_OBS:    int   = N_DRONES - 1   # = 49  — sizes the CasADI parameter matrices
+MASS:     float = 3.645   # [kg] Drone mass
 Q_STAGE:  float = 1.0
 Q_TERM:   float = 100.0
 Q_VEL:       float = 5.0
@@ -307,7 +308,8 @@ class Drone:
         for k in range(MPC_N):
             cost += Q_STAGE * ca.sumsqr(X[:3, k] - p_target)
             cost += Q_VEL * prox_factor * ca.sumsqr(X[3:, k])
-            cost += R_CTRL * ca.sumsqr(U[:, k])
+            force = MASS * U[:, k]          # F = m·a  — penalise physical force
+            cost += R_CTRL * ca.sumsqr(force)
         cost += Q_TERM * ca.sumsqr(X[:3, MPC_N] - p_target)
         cost += Q_VEL * prox_factor * ca.sumsqr(X[3:, MPC_N])
         opti.minimize(cost)

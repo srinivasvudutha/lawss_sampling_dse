@@ -50,39 +50,24 @@ MAX_SAMPLING_TIME_S: float = 180.0
 # MPC constants  (unchanged from Stage 3)
 # ─────────────────────────────────────────────────────────────────────────────
 
-MPC_N:   int   = 20      # prediction horizon (steps) — 2 s lookahead for braking
-V_MAX:   float = 5.0     # velocity bound per axis [m/s]
-A_MAX:   float = 2.0     # acceleration bound per axis [m/s²]
-D_MIN:   float = 3.0     # minimum inter-drone Euclidean clearance [m]
+MPC_N:   int   = 20
+V_MAX:   float = 14.0    # max velocity per axis [m/s]  ← updated from 5.0
+A_MAX:   float = 5.0     # acceleration bound per axis [m/s²]  — keep adjustable
+D_MIN:   float = 4.0     # minimum inter-drone Euclidean clearance [m]
 N_OBS:   int   = 9       # obstacle slots (= N_DRONES - 1)
+MASS:    float = 3.645   # [kg] Drone mass
 
-# ── MPC cost weights ──────────────────────────────────────────────────────────
-# Dense stage cost: penalise position error at every horizon step, not just the
-# terminal.  With MPC_N=10 at DT=0.1 s the horizon is only 1 s; targets can be
-# 100+ m away, so a terminal-only cost never "sees" the target during most of
-# the transit and the solver just commands full acceleration.  A stage cost is
-# always felt, producing natural cruise-then-brake behaviour.
-Q_STAGE:  float = 1.0    # position-error weight at each interior step
-Q_TERM:   float = 100.0  # extra weight at terminal step (bias toward target)
-# Velocity penalty at each step, scaled by proximity:
-#   cost += Q_VEL * (Q_VEL_PROX / dist_to_target) * ||v_k||²
-# Far away the factor ≈ 0 → free to fly fast.
-# Within ~Q_VEL_PROX metres the factor ≥ 1 → solver brakes smoothly.
-Q_VEL:       float = 5.0    # velocity damping strength
-Q_VEL_PROX:  float = 5.0    # proximity radius where damping becomes significant [m]
-R_CTRL:      float = 0.1    # control effort weight
+# ── MPC cost weights ───────────────────────────────────────────────────────
+Q_STAGE:  float = 1.0
+Q_TERM:   float = 100.0
+Q_VEL:       float = 5.0
+Q_VEL_PROX:  float = 5.0
+R_CTRL:      float = 0.1
 
-# Arrival thresholds
-# ARRIVAL_DIST in [0.1, 0.5] m — only snap when truly close.
-# ARRIVAL_SPEED tightened to 0.3 m/s so a drone coasting past at 1 m/s
-# does not accidentally lock in while still moving fast.
-ARRIVAL_DIST: float  = 0.5   # [m]   position closeness
-ARRIVAL_SPEED: float = 0.3   # [m/s] speed at which we consider arrived (was 1.0)
-
-# RTH threshold: trigger when remaining battery drops below this fraction
+ARRIVAL_DIST:  float = 0.5
+ARRIVAL_SPEED: float = 0.3
 RTH_THRESHOLD: float = 0.07
 
-# Sentinel obstacle position — placed far away to fill unused N_OBS slots
 _OBS_SENTINEL = np.array([1e6, 1e6, 1e6], dtype=float)
 
 
@@ -262,13 +247,15 @@ class Drone:
         # Within Q_VEL_PROX m → factor ≥ 1 → solver plans a smooth deceleration.
         # p_dist is the scalar distance at the start of this tick; it is used as
         # a constant (parameter) so the NLP stays linear in the cost terms.
+        # ── Cost function ─────────────────────────────────────────────────────
         prox_factor = Q_VEL_PROX / ca.fmax(p_dist, Q_VEL_PROX)
 
         cost = ca.MX(0)
         for k in range(MPC_N):
             cost += Q_STAGE * ca.sumsqr(X[:3, k] - p_target)
             cost += Q_VEL * prox_factor * ca.sumsqr(X[3:, k])
-            cost += R_CTRL * ca.sumsqr(U[:, k])
+            force = MASS * U[:, k]          # F = m·a  — penalise physical force
+            cost += R_CTRL * ca.sumsqr(force)
         # Extra terminal weight on position + full velocity penalty at end
         cost += Q_TERM * ca.sumsqr(X[:3, MPC_N] - p_target)
         cost += Q_VEL  * prox_factor * ca.sumsqr(X[3:, MPC_N])
