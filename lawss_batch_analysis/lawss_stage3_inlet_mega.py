@@ -45,7 +45,7 @@ STAB_WIN: int       = int(5.0 * T_INT * FS)   # 250 samples
 BATTERY_CAPACITY_S: float = 1080.0   # 18-min battery (same as inlet stage 3)
 
 N_DRONES:  int = 20    # SCALE-UP: 20 drones
-N_TARGETS: int = 250   # SCALE-UP: 250 random 3-D nodes
+N_TARGETS: int = 300   # SCALE-UP: 250 random 3-D nodes
 
 MAX_SAMPLING_TIME_S: float = 180.0   # 3-minute hard cap per run (unchanged)
 

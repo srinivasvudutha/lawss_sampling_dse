@@ -875,9 +875,11 @@ class Environment:
             completed = [d for d in self.drones if d.last_result is not None]
             if completed:
                 lines += ["", "  Completed runs:"]
-                for d in sorted(completed,
-                                 key=lambda x: x.last_result["elapsed_s"]):
+                sampling_times = []
+
+                for d in sorted(completed, key=lambda x: x.last_result["elapsed_s"]):
                     r   = d.last_result
+                    sampling_times.append(r["elapsed_s"])
                     err = abs(r["mean_est"] - U_WAKE) / U_WAKE * 100
                     lines.append(
                         f"    Drone {d.id:>2}  node {r['node_id']:>3}  "
@@ -887,8 +889,19 @@ class Environment:
                         f"T_eff_est={r['T_int_eff_est']:.2f}s"
                     )
 
-        return "\n".join(lines)
+                min_t  = min(sampling_times)
+                max_t  = max(sampling_times)
+                mean_t = sum(sampling_times) / len(sampling_times)
 
+                lines += [
+                    "",
+                    "  Sampling Duration Statistics:",
+                    f"    Shortest : {min_t:.1f} s",
+                    f"    Longest  : {max_t:.1f} s",
+                    f"    Mean     : {mean_t:.1f} s",
+                ]
+
+        return "\n".join(lines)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Smoke test
