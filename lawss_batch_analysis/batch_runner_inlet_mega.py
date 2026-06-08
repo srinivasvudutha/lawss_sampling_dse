@@ -18,14 +18,14 @@ import pandas as pd
 # Default CLI values
 # ─────────────────────────────────────────────────────────────────────────────
 
-DEFAULT_N_TRIALS:   int = 100
+DEFAULT_N_TRIALS:   int = 1
 DEFAULT_SEED_START: int = 0
 DEFAULT_OUTPUT:     str = "inlet_mega_sweep_results.csv"
 DEFAULT_WORKERS:    int = max(1, (os.cpu_count() or 2) - 1)
 
 # Parameter Sweep Grids
 I_U_GRID = [0.05, 0.10, 0.15, 0.20]
-T_INT_GRID = [3.0, 5.0, 7.0, 9.0]
+T_INT_GRID = [3.0, 5.0, 7.0]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
