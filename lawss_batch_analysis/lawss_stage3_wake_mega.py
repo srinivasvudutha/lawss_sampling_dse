@@ -262,6 +262,7 @@ class Drone:
 
     def _build_mpc(self) -> None:
         opti = ca.Opti()
+
         opti.solver(
             'ipopt',
             {'expand': True, 'print_time': 0},
@@ -279,39 +280,47 @@ class Drone:
 
         p_init   = opti.parameter(6)
         p_target = opti.parameter(3)
-        p_obs_p  = opti.parameter(3, N_OBS)   # N_OBS = 49
+        p_obs_p  = opti.parameter(3, N_OBS)
         p_obs_v  = opti.parameter(3, N_OBS)
         p_dist   = opti.parameter()
+        p_v_bound = opti.parameter()          # dynamic velocity bound [m/s]
 
+        # Initial state constraint
         opti.subject_to(X[:, 0] == p_init)
 
+        # Horizon constraints
         for k in range(MPC_N):
             pk = X[:3, k]
             vk = X[3:, k]
             ak = U[:, k]
+
             opti.subject_to(X[:3, k + 1] == pk + vk * DT + 0.5 * ak * DT**2)
             opti.subject_to(X[3:, k + 1] == vk + ak * DT)
-            opti.subject_to(opti.bounded(-V_MAX, X[3:, k], V_MAX))
+
+            opti.subject_to(opti.bounded(-p_v_bound, X[3:, k], p_v_bound))
             opti.subject_to(opti.bounded(-A_MAX, U[:, k],  A_MAX))
+
             if k > 0:
                 for j in range(N_OBS):
                     p_obs_k = p_obs_p[:, j] + p_obs_v[:, j] * (k * DT)
                     opti.subject_to(ca.sumsqr(X[:3, k] - p_obs_k) >= D_MIN**2)
 
-        opti.subject_to(opti.bounded(-V_MAX, X[3:, MPC_N], V_MAX))
+        # Terminal step: velocity bound + collision avoidance
+        opti.subject_to(opti.bounded(-p_v_bound, X[3:, MPC_N], p_v_bound))
         for j in range(N_OBS):
             p_obs_N = p_obs_p[:, j] + p_obs_v[:, j] * (MPC_N * DT)
             opti.subject_to(ca.sumsqr(X[:3, MPC_N] - p_obs_N) >= D_MIN**2)
 
         prox_factor = Q_VEL_PROX / ca.fmax(p_dist, Q_VEL_PROX)
+
         cost = ca.MX(0)
         for k in range(MPC_N):
             cost += Q_STAGE * ca.sumsqr(X[:3, k] - p_target)
             cost += Q_VEL * prox_factor * ca.sumsqr(X[3:, k])
-            force = MASS * U[:, k]          # F = m·a  — penalise physical force
+            force = MASS * U[:, k]
             cost += R_CTRL * ca.sumsqr(force)
         cost += Q_TERM * ca.sumsqr(X[:3, MPC_N] - p_target)
-        cost += Q_VEL * prox_factor * ca.sumsqr(X[3:, MPC_N])
+        cost += Q_VEL  * prox_factor * ca.sumsqr(X[3:, MPC_N])
         opti.minimize(cost)
 
         self._opti     = opti
@@ -322,15 +331,24 @@ class Drone:
         self._p_obs_p  = p_obs_p
         self._p_obs_v  = p_obs_v
         self._p_dist   = p_dist
+        self._p_v_bound = p_v_bound
 
     # ── MPC solve  (UNCHANGED — operates on the 49-slot parameter matrices) ───
 
-    def _solve_mpc(self, neighbours: List[Tuple[np.ndarray, np.ndarray]]) -> np.ndarray:
+    def _solve_mpc(self, neighbours: List[Tuple[np.ndarray, np.ndarray]],) -> np.ndarray:
         state6 = np.hstack([self.position, self.velocity])
         self._opti.set_value(self._p_init,   state6)
         self._opti.set_value(self._p_target, self.target_position)
+
         dist_to_target = float(np.linalg.norm(self.position - self.target_position))
         self._opti.set_value(self._p_dist, dist_to_target)
+
+        # Kinematic braking envelope: v_safe = sqrt(2 * a_max * d)
+        # Buffer of 0.5 m distance and 0.5 m/s speed slack prevents the
+        # constraint from becoming infeasible in the final approach.
+        safe_v = float(np.sqrt(2.0 * A_MAX * max(0.0, dist_to_target - 0.5)))
+        dyn_v_bound = min(V_MAX, safe_v + 0.5)
+        self._opti.set_value(self._p_v_bound, dyn_v_bound)
 
         obs_p = np.empty((3, N_OBS), dtype=float)
         obs_v = np.zeros((3, N_OBS), dtype=float)
@@ -353,6 +371,7 @@ class Drone:
                 unit     = direction / dist
                 cruise_v = unit * min(V_MAX * 0.5, dist / (MPC_N * DT))
             else:
+                unit     = np.zeros(3)
                 cruise_v = np.zeros(3)
             X_init = np.zeros((6, MPC_N + 1))
             X_init[:3, 0] = self.position
@@ -365,7 +384,7 @@ class Drone:
         self._opti.set_initial(self._mpc_U, U_init)
 
         try:
-            sol   = self._opti.solve()
+            sol = self._opti.solve()
             X_val = np.array(sol.value(self._mpc_X))
             U_val = np.array(sol.value(self._mpc_U))
             self._last_solve_ok = True
@@ -380,6 +399,7 @@ class Drone:
 
         self._warm_X = X_val
         self._warm_U = U_val
+
         return np.clip(U_val[:, 0], -A_MAX, A_MAX)
 
     # ── update_trajectory  (UNCHANGED) ───────────────────────────────────────

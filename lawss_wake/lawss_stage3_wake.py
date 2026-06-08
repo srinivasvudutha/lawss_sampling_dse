@@ -92,7 +92,7 @@ MAX_SAMPLING_TIME_S: float = 180.0    # 3-min hard cap per run
 
 MPC_N:    int   = 20
 V_MAX:    float = 14.0    # max velocity per axis [m/s]
-A_MAX:    float = 2.0
+A_MAX:    float = 5.0
 D_MIN:    float = 3.0
 N_OBS:    int   = 9
 MASS:     float = 3.645   # [kg] Drone mass
@@ -294,6 +294,7 @@ class Drone:
 
     def _build_mpc(self) -> None:
         opti = ca.Opti()
+
         opti.solver(
             'ipopt',
             {'expand': True, 'print_time': 0},
@@ -313,40 +314,42 @@ class Drone:
         p_target = opti.parameter(3)
         p_obs_p  = opti.parameter(3, N_OBS)
         p_obs_v  = opti.parameter(3, N_OBS)
-        p_dist   = opti.parameter()          # current distance to target [m]
+        p_dist   = opti.parameter()
+        p_v_bound = opti.parameter()          # dynamic velocity bound [m/s]
 
+        # Initial state constraint
         opti.subject_to(X[:, 0] == p_init)
 
+        # Horizon constraints
         for k in range(MPC_N):
             pk = X[:3, k]
             vk = X[3:, k]
             ak = U[:, k]
+
             opti.subject_to(X[:3, k + 1] == pk + vk * DT + 0.5 * ak * DT**2)
             opti.subject_to(X[3:, k + 1] == vk + ak * DT)
-            opti.subject_to(opti.bounded(-V_MAX, X[3:, k], V_MAX))
+
+            opti.subject_to(opti.bounded(-p_v_bound, X[3:, k], p_v_bound))
             opti.subject_to(opti.bounded(-A_MAX, U[:, k],  A_MAX))
-            # Skip k=0: current state is fixed by p_init — applying collision
-            # avoidance there makes the NLP infeasible when drones are close,
-            # causing IPOPT to produce wildly curved detour paths.
+
             if k > 0:
                 for j in range(N_OBS):
                     p_obs_k = p_obs_p[:, j] + p_obs_v[:, j] * (k * DT)
                     opti.subject_to(ca.sumsqr(X[:3, k] - p_obs_k) >= D_MIN**2)
 
         # Terminal step: velocity bound + collision avoidance
-        opti.subject_to(opti.bounded(-V_MAX, X[3:, MPC_N], V_MAX))
+        opti.subject_to(opti.bounded(-p_v_bound, X[3:, MPC_N], p_v_bound))
         for j in range(N_OBS):
             p_obs_N = p_obs_p[:, j] + p_obs_v[:, j] * (MPC_N * DT)
             opti.subject_to(ca.sumsqr(X[:3, MPC_N] - p_obs_N) >= D_MIN**2)
 
-        # Dense stage cost + proximity velocity damping (see inlet for rationale)
-        # Dense stage cost + proximity velocity damping
         prox_factor = Q_VEL_PROX / ca.fmax(p_dist, Q_VEL_PROX)
+
         cost = ca.MX(0)
         for k in range(MPC_N):
             cost += Q_STAGE * ca.sumsqr(X[:3, k] - p_target)
             cost += Q_VEL * prox_factor * ca.sumsqr(X[3:, k])
-            force = MASS * U[:, k]          # F = m·a  — penalise physical force
+            force = MASS * U[:, k]
             cost += R_CTRL * ca.sumsqr(force)
         cost += Q_TERM * ca.sumsqr(X[:3, MPC_N] - p_target)
         cost += Q_VEL  * prox_factor * ca.sumsqr(X[3:, MPC_N])
@@ -360,17 +363,24 @@ class Drone:
         self._p_obs_p  = p_obs_p
         self._p_obs_v  = p_obs_v
         self._p_dist   = p_dist
+        self._p_v_bound = p_v_bound
 
     # ── MPC solve  (IDENTICAL to inlet Stage 3) ───────────────────────────────
 
-    def _solve_mpc(self, neighbours: List[Tuple[np.ndarray, np.ndarray]]) -> np.ndarray:
+    def _solve_mpc(self, neighbours: List[Tuple[np.ndarray, np.ndarray]],) -> np.ndarray:
         state6 = np.hstack([self.position, self.velocity])
         self._opti.set_value(self._p_init,   state6)
         self._opti.set_value(self._p_target, self.target_position)
 
-        # Current distance to target — feeds the proximity velocity-damping term
         dist_to_target = float(np.linalg.norm(self.position - self.target_position))
         self._opti.set_value(self._p_dist, dist_to_target)
+
+        # Kinematic braking envelope: v_safe = sqrt(2 * a_max * d)
+        # Buffer of 0.5 m distance and 0.5 m/s speed slack prevents the
+        # constraint from becoming infeasible in the final approach.
+        safe_v = float(np.sqrt(2.0 * A_MAX * max(0.0, dist_to_target - 0.5)))
+        dyn_v_bound = min(V_MAX, safe_v + 0.5)
+        self._opti.set_value(self._p_v_bound, dyn_v_bound)
 
         obs_p = np.empty((3, N_OBS), dtype=float)
         obs_v = np.zeros((3, N_OBS), dtype=float)
@@ -383,16 +393,10 @@ class Drone:
         self._opti.set_value(self._p_obs_p, obs_p)
         self._opti.set_value(self._p_obs_v, obs_v)
 
-        # Warm start — shift previous solution left by one step, or seed with
-        # a straight-line trajectory toward the target on the first call.
-        # Zero-initialisation (IPOPT default) starts all predicted positions
-        # at the current location, violating collision constraints against
-        # nearby drones and causing curved detour paths.
         if self._warm_X is not None and self._warm_U is not None:
             X_init = np.hstack([self._warm_X[:, 1:], self._warm_X[:, -1:]])
             U_init = np.hstack([self._warm_U[:, 1:], self._warm_U[:, -1:]])
         else:
-            # Cold-start: straight-line guess at a safe cruise speed
             direction = self.target_position - self.position
             dist      = float(np.linalg.norm(direction))
             if dist > 1e-3:
@@ -412,7 +416,7 @@ class Drone:
         self._opti.set_initial(self._mpc_U, U_init)
 
         try:
-            sol   = self._opti.solve()
+            sol = self._opti.solve()
             X_val = np.array(sol.value(self._mpc_X))
             U_val = np.array(sol.value(self._mpc_U))
             self._last_solve_ok = True
@@ -427,6 +431,7 @@ class Drone:
 
         self._warm_X = X_val
         self._warm_U = U_val
+
         return np.clip(U_val[:, 0], -A_MAX, A_MAX)
 
     # ── update_trajectory  (IDENTICAL to inlet Stage 3) ──────────────────────
