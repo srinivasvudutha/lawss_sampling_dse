@@ -82,8 +82,8 @@ PERSIST_SAMPLES: int = int(T_SHED * FS)
 # ─────────────────────────────────────────────────────────────────────────────
 
 BATTERY_CAPACITY_S:  float = 1080.0   # 18-min battery
-N_TARGETS:           int   = 100      # 100 random 3-D nodes
-N_DRONES:            int   = 10
+N_TARGETS:           int   = 1      # 100 random 3-D nodes
+N_DRONES:            int   = 1
 MAX_SAMPLING_TIME_S: float = 180.0    # 3-min hard cap per run
 
 # ─────────────────────────────────────────────────────────────────────────────

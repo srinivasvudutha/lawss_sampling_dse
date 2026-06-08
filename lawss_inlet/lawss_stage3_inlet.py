@@ -39,9 +39,9 @@ STAB_WIN: int       = int(5.0 * T_INT * FS)   # 250 samples
 BATTERY_CAPACITY_S: float = 1080.0
 
 # FIX 4: 100 random 3-D targets
-N_TARGETS: int = 100
+N_TARGETS: int = 1
 
-N_DRONES: int = 10
+N_DRONES: int = 1
 
 # FIX 6: 3-minute hard cap on a single sampling run
 MAX_SAMPLING_TIME_S: float = 180.0
