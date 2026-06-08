@@ -82,9 +82,9 @@ PERSIST_SAMPLES: int = int(T_SHED * FS)
 # ─────────────────────────────────────────────────────────────────────────────
 
 BATTERY_CAPACITY_S:  float = 1080.0   # 18-min battery
-N_TARGETS:           int   = 1      # 100 random 3-D nodes
-N_DRONES:            int   = 1
-MAX_SAMPLING_TIME_S: float = 180.0    # 3-min hard cap per run
+N_TARGETS:           int   = 100      # 100 random 3-D nodes
+N_DRONES:            int   = 10
+MAX_SAMPLING_TIME_S: float = 300.0    # 3-min hard cap per run
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MPC constants  (UNCHANGED)
@@ -92,19 +92,19 @@ MAX_SAMPLING_TIME_S: float = 180.0    # 3-min hard cap per run
 
 MPC_N:    int   = 20
 V_MAX:    float = 14.0    # max velocity per axis [m/s]
-A_MAX:    float = 5.0
-D_MIN:    float = 3.0
+A_MAX:    float = 10.0
+D_MIN:    float = 4.0
 N_OBS:    int   = 9
 MASS:     float = 3.645   # [kg] Drone mass
 
 Q_STAGE:  float = 1.0
 Q_TERM:   float = 100.0
 Q_VEL:       float = 5.0
-Q_VEL_PROX:  float = 5.0
+Q_VEL_PROX:  float = 0.5
 R_CTRL:      float = 0.1
 
-ARRIVAL_DIST:  float = 0.5
-ARRIVAL_SPEED: float = 0.3
+ARRIVAL_DIST:  float = 0.3
+ARRIVAL_SPEED: float = 1.0
 RTH_THRESHOLD: float = 0.07
 
 _OBS_SENTINEL = np.array([1e6, 1e6, 1e6], dtype=float)
