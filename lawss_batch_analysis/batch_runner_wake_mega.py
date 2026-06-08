@@ -24,7 +24,7 @@ DEFAULT_OUTPUT:     str = "wake_mega_sweep_results.csv"
 DEFAULT_WORKERS:    int = max(1, (os.cpu_count() or 2) - 1)
 
 # Parameter Sweep Grids
-I_U_GRID = [0.25, 0.30, 0.35, 0.40]
+I_U_GRID = [0.20, 0.25, 0.30, 0.35]
 T_INT_GRID = [3.0, 5.0, 7.0, 9.0]
 
 
