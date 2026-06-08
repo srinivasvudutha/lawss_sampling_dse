@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import time
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -10,15 +11,17 @@ from scipy.optimize import linear_sum_assignment
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Physical & statistical constants  (inlet physics — UNCHANGED from Stage 3)
+# Physical & statistical constants  (inlet physics — injected via os.environ)
 # ─────────────────────────────────────────────────────────────────────────────
 
 FS: float = 10.0
 DT: float = 1.0 / FS
 
 U_MEAN: float   = 12.0
-I_U: float      = 0.10
-T_INT: float    = 5.0
+
+# INJECTED VARIABLES FOR HPC SWEEP
+I_U: float   = float(os.environ.get("LAWSS_I_U", "0.10"))
+T_INT: float = float(os.environ.get("LAWSS_T_INT", "5.0"))
 
 SIGMA_U: float   = I_U * U_MEAN
 PHI: float       = np.exp(-DT / T_INT)
@@ -52,7 +55,7 @@ MAX_SAMPLING_TIME_S: float = 180.0   # 3-minute hard cap per run (unchanged)
 
 MPC_N:   int   = 20
 V_MAX:   float = 14.0
-A_MAX:   float = 2.0
+A_MAX:   float = 8.0
 D_MIN:   float = 3.0
 N_OBS:   int   = N_DRONES - 1
 MASS:    float = 3.645
@@ -486,18 +489,6 @@ class Drone:
 class Environment:
     """
     Mega-scale inlet environment: 20 drones, 250 random 3-D nodes.
-
-    Drone spawn layout:  4 rows × 5 columns, 4 m spacing in X and Y.
-    This gives a minimum inter-drone separation of 4.0 m > D_MIN = 3.0 m,
-    so the MPC collision constraints are satisfied from tick 0.
-
-    Grid positions:
-        col 0..4  →  x = 0, 4, 8, 12, 16
-        row 0..3  →  y = 0, 4, 8, 12
-        z = 0 (ground, pre-takeoff)
-
-    All other logic (Hungarian dispatcher, RTH unlock, neighbour snapshot)
-    is identical to lawss_stage3_inlet.py.
     """
 
     # Spawn grid parameters
@@ -512,7 +503,6 @@ class Environment:
         master_rng  = np.random.default_rng(seed)
         drone_seeds = master_rng.integers(0, 2**31, size=N_DRONES)
 
-        # 250 random targets uniformly distributed in [0, 100]³
         self.target_positions: np.ndarray = master_rng.uniform(
             0.0, 100.0, size=(N_TARGETS, 3)
         ).astype(float)
@@ -520,7 +510,6 @@ class Environment:
         self.target_measured: np.ndarray = np.zeros(N_TARGETS, dtype=bool)
         self.target_locked:   np.ndarray = np.zeros(N_TARGETS, dtype=bool)
 
-        # 4 × 5 grid spawn positions on the ground plane
         spawn_positions = []
         for row in range(self._SPAWN_ROWS):
             for col in range(self._SPAWN_COLS):
@@ -529,7 +518,6 @@ class Environment:
                     row * self._SPAWN_SPACING,
                     0.0,
                 ], dtype=float))
-        # Safety check: exactly N_DRONES = 20 positions
         assert len(spawn_positions) == N_DRONES, (
             f"Spawn grid mismatch: {len(spawn_positions)} positions "
             f"for {N_DRONES} drones"
@@ -548,11 +536,8 @@ class Environment:
         self._dispatch_calls:   int = 0
         self._assignments_made: int = 0
 
-    # ── Completion polling  ───────────────────────────────────────────────────
-
     def _collect_completions(self) -> None:
         for drone in self.drones:
-            # Unlock abandoned nodes (RTH triggered mid-task)
             if drone.abandoned_node_id is not None:
                 node_id = drone.abandoned_node_id
                 if 0 <= node_id < N_TARGETS:
@@ -567,8 +552,6 @@ class Environment:
                 self.target_measured[node_id] = True
                 self.target_locked[node_id]   = False
             drone.completed_node_id = None
-
-    # ── Hungarian dispatcher  ─────────────────────────────────────────────────
 
     def dispatch(self) -> None:
         self._dispatch_calls += 1
@@ -605,16 +588,7 @@ class Environment:
             self.target_locked[node_id] = True
             self._assignments_made += 1
 
-    # ── Simulation clock  ─────────────────────────────────────────────────────
-
     def step(self) -> None:
-        """
-        One 10 Hz tick:
-          1. Snapshot all (position, velocity) pairs BEFORE any drone moves.
-          2. Advance each drone with its N_DRONES-1 neighbour snapshot.
-          3. Collect completions, dispatch.
-          4. Advance clock.
-        """
         snapshot: List[Tuple[np.ndarray, np.ndarray]] = [
             (d.position.copy(), d.velocity.copy()) for d in self.drones
         ]
@@ -633,11 +607,8 @@ class Environment:
         self.elapsed_s  += DT
 
     def run(self, duration_s: float) -> None:
-        """Blocking loop — headless testing only."""
         for _ in range(int(duration_s / DT)):
             self.step()
-
-    # ── Properties  ───────────────────────────────────────────────────────────
 
     @property
     def n_measured(self) -> int:
@@ -646,8 +617,6 @@ class Environment:
     @property
     def all_measured(self) -> bool:
         return bool(self.target_measured.all())
-
-    # ── Reporting  ────────────────────────────────────────────────────────────
 
     def summary(self, show_completed: bool = False) -> str:
         lines = [
@@ -691,17 +660,7 @@ class Environment:
         return "\n".join(lines)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Smoke test
-# ─────────────────────────────────────────────────────────────────────────────
-
 def _smoke_test() -> None:
-    """
-    Quick correctness check — runs a short burst, prints a snapshot,
-    then verifies basic invariants.
-
-    Full 18-min runs are handled by batch_runner_inlet_mega.py.
-    """
     print("=" * 72)
     print("  LAWSS Inlet Mega-Scale — Smoke Test")
     print(f"  {N_DRONES} drones  |  {N_TARGETS} random 3-D nodes in [0,100]³")
@@ -717,7 +676,6 @@ def _smoke_test() -> None:
     env = Environment(seed=0)
     print(f"  Build time: {time.perf_counter() - t_build:.2f} s\n")
 
-    # Run 120 s (short validation burst)
     t0 = time.perf_counter()
     for _ in range(int(120 / DT)):
         env.step()
@@ -727,7 +685,6 @@ def _smoke_test() -> None:
     print(f"\n  Wall time for 120 s sim: {wall:.2f} s  "
           f"({120/wall:.0f}× real-time)")
 
-    # Invariant checks
     print(f"\n  Nodes measured: {env.n_measured}")
     still_locked_and_measured = [
         i for i in range(N_TARGETS)

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import time
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -17,14 +18,16 @@ FS: float = 10.0
 DT: float = 1.0 / FS
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Wake signal parameters  (mirrors wake_sampler.py CONFIG — UNCHANGED)
+# Wake signal parameters  (injected via os.environ for sweeps)
 # ─────────────────────────────────────────────────────────────────────────────
 
 U_INF:    float = 15.0    # free-stream wind speed            [m/s]
 U_WAKE:   float = 9.0     # mean velocity in the wake         [m/s]  (~0.6·U_inf)
-I_U_RAND: float = 0.22    # random turbulence intensity       [-]
-I_U_SHED: float = 0.15    # periodic shedding intensity       [-]
-T_INT_RAND: float = 5.0   # true random integral time scale   [s]
+
+# INJECTED VARIABLES FOR HPC SWEEP
+I_U_RAND:   float = float(os.environ.get("LAWSS_I_U", "0.22"))
+I_U_SHED:   float = float(os.environ.get("LAWSS_I_U", "0.15"))
+T_INT_RAND: float = float(os.environ.get("LAWSS_T_INT", "5.0"))
 
 D:  float = 20.0          # characteristic building dimension [m]
 ST: float = 0.10          # Strouhal number                   [-]
@@ -77,8 +80,8 @@ PERSIST_SAMPLES: int = int(T_SHED * FS)
 # ─────────────────────────────────────────────────────────────────────────────
 
 BATTERY_CAPACITY_S:  float = 1080.0   # 18-min battery (unchanged)
-N_TARGETS:           int   = 400      # ← 600 random 3-D nodes  (was 100)
-N_DRONES:            int   = 50       # ← 50 drones              (was 10)
+N_TARGETS:           int   = 600      # 600 random 3-D nodes
+N_DRONES:            int   = 50       # 50 drones
 MAX_SAMPLING_TIME_S: float = 180.0    # 3-min hard cap per run (unchanged)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -86,7 +89,7 @@ MAX_SAMPLING_TIME_S: float = 180.0    # 3-min hard cap per run (unchanged)
 # ─────────────────────────────────────────────────────────────────────────────
 
 MPC_N:    int   = 20
-V_MAX:    float = 14.0    # max velocity per axis [m/s]  ← updated from 5.0
+V_MAX:    float = 14.0    # max velocity per axis [m/s]
 A_MAX:    float = 2.0
 D_MIN:    float = 3.0
 N_OBS:    int   = N_DRONES - 1   # = 49  — sizes the CasADI parameter matrices
@@ -126,14 +129,10 @@ def _spawn_position(drone_id: int) -> np.ndarray:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ACF zero-crossing integrator  (UNCHANGED from lawss_stage3_wake.py)
+# ACF zero-crossing integrator
 # ─────────────────────────────────────────────────────────────────────────────
 
 def acf_zero_crossing_T_int(buf: np.ndarray, dt: float, max_lag: int) -> float:
-    """
-    Estimate T_int by integrating the sample ACF from lag 0 to first
-    zero-crossing.  See lawss_stage3_wake.py for full derivation note.
-    """
     n = len(buf)
     if n < max_lag + 2:
         return np.nan
@@ -158,7 +157,7 @@ def acf_zero_crossing_T_int(buf: np.ndarray, dt: float, max_lag: int) -> float:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# State machine  (UNCHANGED)
+# State machine
 # ─────────────────────────────────────────────────────────────────────────────
 
 class DroneState(Enum):
@@ -169,7 +168,7 @@ class DroneState(Enum):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# WelfordState  (UNCHANGED)
+# WelfordState
 # ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass
@@ -207,16 +206,10 @@ class WelfordState:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Drone  (physics UNCHANGED; MPC uses module-level N_OBS = 49)
+# Drone
 # ─────────────────────────────────────────────────────────────────────────────
 
 class Drone:
-    """
-    Mega-scale wake drone.  Identical physics to lawss_stage3_wake.Drone;
-    the only structural change is that _build_mpc() allocates
-    p_obs_p / p_obs_v with N_OBS = 49 columns instead of 9.
-    """
-
     def __init__(self, drone_id: int, position: np.ndarray,
                  rng: np.random.Generator):
         self.id       = drone_id
@@ -241,7 +234,6 @@ class Drone:
         self.stats: WelfordState = WelfordState()
         self.samples_this_run: int = 0
 
-        # History arrays (sized to battery capacity)
         _buf = int(BATTERY_CAPACITY_S * FS)
         self.hist_raw_velocity: np.ndarray = np.full(_buf, np.nan)
         self.hist_running_mean: np.ndarray = np.full(_buf, np.nan)
@@ -257,8 +249,6 @@ class Drone:
         self._warm_U: Optional[np.ndarray] = None
         self._last_solve_ok: bool = True
         self._build_mpc()
-
-    # ── MPC construction  — N_OBS = 49 slots ─────────────────────────────────
 
     def _build_mpc(self) -> None:
         opti = ca.Opti()
@@ -283,12 +273,10 @@ class Drone:
         p_obs_p  = opti.parameter(3, N_OBS)
         p_obs_v  = opti.parameter(3, N_OBS)
         p_dist   = opti.parameter()
-        p_v_bound = opti.parameter()          # dynamic velocity bound [m/s]
+        p_v_bound = opti.parameter()
 
-        # Initial state constraint
         opti.subject_to(X[:, 0] == p_init)
 
-        # Horizon constraints
         for k in range(MPC_N):
             pk = X[:3, k]
             vk = X[3:, k]
@@ -305,7 +293,6 @@ class Drone:
                     p_obs_k = p_obs_p[:, j] + p_obs_v[:, j] * (k * DT)
                     opti.subject_to(ca.sumsqr(X[:3, k] - p_obs_k) >= D_MIN**2)
 
-        # Terminal step: velocity bound + collision avoidance
         opti.subject_to(opti.bounded(-p_v_bound, X[3:, MPC_N], p_v_bound))
         for j in range(N_OBS):
             p_obs_N = p_obs_p[:, j] + p_obs_v[:, j] * (MPC_N * DT)
@@ -333,8 +320,6 @@ class Drone:
         self._p_dist   = p_dist
         self._p_v_bound = p_v_bound
 
-    # ── MPC solve  (UNCHANGED — operates on the 49-slot parameter matrices) ───
-
     def _solve_mpc(self, neighbours: List[Tuple[np.ndarray, np.ndarray]],) -> np.ndarray:
         state6 = np.hstack([self.position, self.velocity])
         self._opti.set_value(self._p_init,   state6)
@@ -343,9 +328,6 @@ class Drone:
         dist_to_target = float(np.linalg.norm(self.position - self.target_position))
         self._opti.set_value(self._p_dist, dist_to_target)
 
-        # Kinematic braking envelope: v_safe = sqrt(2 * a_max * d)
-        # Buffer of 0.5 m distance and 0.5 m/s speed slack prevents the
-        # constraint from becoming infeasible in the final approach.
         safe_v = float(np.sqrt(2.0 * A_MAX * max(0.0, dist_to_target - 0.5)))
         dyn_v_bound = min(V_MAX, safe_v + 0.5)
         self._opti.set_value(self._p_v_bound, dyn_v_bound)
@@ -402,8 +384,6 @@ class Drone:
 
         return np.clip(U_val[:, 0], -A_MAX, A_MAX)
 
-    # ── update_trajectory  (UNCHANGED) ───────────────────────────────────────
-
     def update_trajectory(
         self,
         neighbours: Optional[List[Tuple[np.ndarray, np.ndarray]]] = None,
@@ -431,8 +411,6 @@ class Drone:
                 self.battery_depleted = True
                 self.target_position  = None
 
-    # ── Assignment & sampling lifecycle  (UNCHANGED) ──────────────────────────
-
     def assign_target(self, target_position: np.ndarray,
                       target_node_id: int) -> None:
         self.target_position = target_position.copy()
@@ -447,8 +425,6 @@ class Drone:
         self.stats.reset()
         self._u_rand_prime    = 0.0
 
-    # ── Wake signal generation  (UNCHANGED) ───────────────────────────────────
-
     def _generate_sample(self) -> float:
         eps                = self.rng.normal(0.0, SIGMA_EPS)
         self._u_rand_prime = PHI_RAND * self._u_rand_prime + eps
@@ -459,8 +435,6 @@ class Drone:
             2.0 * np.pi * F_SHED * t_local + self.phase0
         )
         return U_WAKE + u_rand + u_shed
-
-    # ── Welford + ACF update  (UNCHANGED) ────────────────────────────────────
 
     def _update_welford(self, u: float) -> None:
         s = self.stats
@@ -488,8 +462,6 @@ class Drone:
                     + (1.0 - ACF_EMA_ALPHA) * s.T_int_eff_cur
                 )
 
-    # ── Stopping conditions  (UNCHANGED — 4 conditions) ──────────────────────
-
     def _check_stopping_conditions(self) -> tuple[bool, bool, bool, bool]:
         s         = self.stats
         current_T = s.wf_n * DT
@@ -516,8 +488,6 @@ class Drone:
 
         return cond1, cond2, cond3, cond4
 
-    # ── History recording  (UNCHANGED) ───────────────────────────────────────
-
     def _record_history(self, u: float, ci_rel: float) -> None:
         ptr = self._hist_ptr % len(self.hist_raw_velocity)
         self.hist_raw_velocity[ptr] = u
@@ -525,8 +495,6 @@ class Drone:
         self.hist_ci_rel[ptr]       = ci_rel
         self.hist_T_eff[ptr]        = self.stats.T_int_eff_cur
         self._hist_ptr += 1
-
-    # ── Run finalisation  (UNCHANGED) ─────────────────────────────────────────
 
     def _finish_run(self) -> None:
         s = self.stats
@@ -542,8 +510,6 @@ class Drone:
         self.target_position   = None
         self.target_node_id    = None
         self.state             = DroneState.IDLE
-
-    # ── Main tick  (UNCHANGED) ────────────────────────────────────────────────
 
     def tick(
         self,
@@ -601,21 +567,12 @@ class Drone:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Environment  — 50 drones, 600 nodes, 2-D spawn grid
+# Environment
 # ─────────────────────────────────────────────────────────────────────────────
 
 class Environment:
     """
     Mega-scale wake Environment.
-
-    Changes vs. lawss_stage3_wake.Environment:
-      • N_DRONES = 50, N_TARGETS = 600.
-      • Drones spawn in a 5 × 10 grid (rows × cols) at ground level, spaced
-        _SPAWN_STEP metres apart in both X and Y.  This keeps all spawn
-        positions within the [0, 100]³ domain and satisfies D_MIN = 3 m
-        (spacing 4 m > 3 m, so IPOPT is well-posed from tick 1).
-      • All fleet logic — Hungarian dispatcher, completion polling, RTH
-        unlock, neighbour snapshot — is IDENTICAL to the original.
     """
 
     def __init__(self, seed: int = 42):
@@ -625,7 +582,6 @@ class Environment:
         master_rng  = np.random.default_rng(seed)
         drone_seeds = master_rng.integers(0, 2**31, size=N_DRONES)
 
-        # 600 random targets scattered uniformly in [0, 100]³
         self.target_positions: np.ndarray = master_rng.uniform(
             0.0, 100.0, size=(N_TARGETS, 3)
         ).astype(float)
@@ -633,7 +589,6 @@ class Environment:
         self.target_measured: np.ndarray = np.zeros(N_TARGETS, dtype=bool)
         self.target_locked:   np.ndarray = np.zeros(N_TARGETS, dtype=bool)
 
-        # 5 × 10 spawn grid — minimum separation = _SPAWN_STEP = 4 m > D_MIN
         self.drones: list[Drone] = [
             Drone(
                 drone_id=i,
@@ -645,8 +600,6 @@ class Environment:
 
         self._dispatch_calls:   int = 0
         self._assignments_made: int = 0
-
-    # ── Completion polling  (UNCHANGED) ──────────────────────────────────────
 
     def _collect_completions(self) -> None:
         for drone in self.drones:
@@ -664,8 +617,6 @@ class Environment:
                 self.target_measured[node_id] = True
                 self.target_locked[node_id]   = False
             drone.completed_node_id = None
-
-    # ── Hungarian dispatcher  (UNCHANGED) ────────────────────────────────────
 
     def dispatch(self) -> None:
         self._dispatch_calls += 1
@@ -701,16 +652,7 @@ class Environment:
             self.target_locked[node_id] = True
             self._assignments_made += 1
 
-    # ── Simulation clock  (UNCHANGED) ────────────────────────────────────────
-
     def step(self) -> None:
-        """
-        One 10 Hz tick:
-          1. Snapshot all (position, velocity) pairs BEFORE any drone moves.
-          2. Tick every drone with its 49 neighbours' snapshot.
-          3. Collect completions, run dispatcher.
-          4. Advance clock.
-        """
         snapshot: List[Tuple[np.ndarray, np.ndarray]] = [
             (d.position.copy(), d.velocity.copy()) for d in self.drones
         ]
@@ -728,11 +670,8 @@ class Environment:
         self.elapsed_s  += DT
 
     def run(self, duration_s: float) -> None:
-        """Blocking loop — headless use only."""
         for _ in range(int(duration_s / DT)):
             self.step()
-
-    # ── Properties  (UNCHANGED) ──────────────────────────────────────────────
 
     @property
     def n_measured(self) -> int:
@@ -741,8 +680,6 @@ class Environment:
     @property
     def all_measured(self) -> bool:
         return bool(self.target_measured.all())
-
-    # ── Compact reporting  ────────────────────────────────────────────────────
 
     def summary(self) -> str:
         n_idle     = sum(1 for d in self.drones if d.state == DroneState.IDLE)
@@ -758,10 +695,6 @@ class Environment:
             f"SAMP={n_sampling} RTH={n_rth} DEP={n_depleted}]"
         )
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Quick smoke test  (single seed, progress printed every 60 s)
-# ─────────────────────────────────────────────────────────────────────────────
 
 def _smoke_test() -> None:
     print("=" * 72)
@@ -781,7 +714,7 @@ def _smoke_test() -> None:
     print(f"  Build time: {time.perf_counter() - t0:.2f} s\n")
 
     budget_ticks = int(BATTERY_CAPACITY_S / DT)
-    report_every = int(60.0 / DT)   # print status every 60 simulated seconds
+    report_every = int(60.0 / DT)
     wall_start   = time.perf_counter()
     early_stop   = None
 

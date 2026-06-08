@@ -6,6 +6,7 @@ import os
 import sys
 import time
 import traceback
+import itertools
 from concurrent.futures import ProcessPoolExecutor, as_completed, Future
 from typing import Dict, List, Optional
 
@@ -19,26 +20,19 @@ import pandas as pd
 
 DEFAULT_N_TRIALS:   int = 100
 DEFAULT_SEED_START: int = 0
-DEFAULT_OUTPUT:     str = "inlet_mega_batch_results.csv"
-# Leave one core free for the OS; each worker builds 20 MPC solvers so
-# memory pressure rises quickly — users on tight RAM may lower this.
+DEFAULT_OUTPUT:     str = "inlet_mega_sweep_results.csv"
 DEFAULT_WORKERS:    int = max(1, (os.cpu_count() or 2) - 1)
+
+# Parameter Sweep Grids
+I_U_GRID = [0.05, 0.10, 0.15, 0.20]
+T_INT_GRID = [3.0, 5.0, 7.0, 9.0]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Subprocess initialiser  — single-threaded BLAS/OpenMP pinning
+# Subprocess initialiser
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _worker_init() -> None:
-    """
-    Run once in each worker process before any trial begins.
-
-    Explicitly pins BLAS, OpenMP, and MKL thread counts to 1 so that
-    N worker processes do not each expand into BLAS_THREADS threads,
-    which would severely oversubscribe the CPU on HPC nodes.
-
-    Must be applied BEFORE any NumPy / CasADi import in the worker.
-    """
     for var in (
         "OMP_NUM_THREADS",
         "OPENBLAS_NUM_THREADS",
@@ -51,38 +45,22 @@ def _worker_init() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Core worker function  (module-level — required for pickling with spawn)
+# Core worker function
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _run_trial(seed: int) -> Dict:
-    """
-    Execute one complete LAWSS Inlet Mega-Scale simulation trial.
-    Motion and arrival behaviour come from lawss_stage3_inlet_mega's
-    dense-cost, proximity-braking CasADi MPC backend.
-
-    All imports are local to this function so each subprocess loads its own
-    independent copy of lawss_stage3_inlet_mega, keeping CasADi's global
-    solver state isolated between workers.
-
-    Parameters
-    ----------
-    seed : int
-        RNG seed passed to Environment(seed=seed).
-
-    Returns
-    -------
-    dict
-        Keys: seed, nodes_completed, sim_duration_s, fleet_distance_m,
-              wall_time_s, error.
-        ``error`` is None on success; a string traceback on failure.
-        Metric fields are NaN on failure so the DataFrame stays typed.
-    """
+def _run_trial(args: tuple) -> Dict:
+    seed, i_u, t_int = args
     import time as _time
     import numpy as _np
 
-    # Isolated import — each subprocess gets its own module instance.
-    # This prevents any shared global state (CasADi IPOPT warm-start,
-    # NumPy RNG state, etc.) between parallel workers.
+    import os as _os
+    import sys as _sys
+    
+    # Inject variables and force module cache reload to re-evaluate constants
+    _os.environ["LAWSS_I_U"] = str(i_u)
+    _os.environ["LAWSS_T_INT"] = str(t_int)
+    _sys.modules.pop('lawss_stage3_inlet_mega', None)
+
     try:
         from lawss_stage3_inlet_mega import (
             Environment,
@@ -91,6 +69,8 @@ def _run_trial(seed: int) -> Dict:
         )
     except ImportError as exc:
         return {
+            "I_U":              i_u,
+            "T_INT":            t_int,
             "seed":             seed,
             "nodes_completed":  0,
             "sim_duration_s":   float("nan"),
@@ -105,12 +85,10 @@ def _run_trial(seed: int) -> Dict:
         env          = Environment(seed=seed)
         budget_ticks = int(BATTERY_CAPACITY_S / DT)
 
-        # Fleet odometry: pre-snapshot positions so the first step's
-        # displacement is captured correctly.
         n_drones     = len(env.drones)
         prev_pos     = _np.array(
             [d.position for d in env.drones], dtype=float
-        )                                    # (N_DRONES, 3)
+        )
         fleet_dist_m = 0.0
 
         tick = 0
@@ -124,7 +102,7 @@ def _run_trial(seed: int) -> Dict:
             fleet_dist_m += float(
                 _np.sum(_np.linalg.norm(curr_pos - prev_pos, axis=1))
             )
-            prev_pos[:] = curr_pos   # reuse buffer
+            prev_pos[:] = curr_pos
 
             if env.all_measured:
                 break
@@ -132,6 +110,8 @@ def _run_trial(seed: int) -> Dict:
         wall_elapsed = _time.perf_counter() - wall_start
 
         return {
+            "I_U":              i_u,
+            "T_INT":            t_int,
             "seed":             seed,
             "nodes_completed":  int(env.n_measured),
             "sim_duration_s":   round(float(env.elapsed_s),  3),
@@ -140,9 +120,11 @@ def _run_trial(seed: int) -> Dict:
             "error":            None,
         }
 
-    except Exception:  # noqa: BLE001 — intentional catch-all in workers
+    except Exception:
         wall_elapsed = _time.perf_counter() - wall_start
         return {
+            "I_U":              i_u,
+            "T_INT":            t_int,
             "seed":             seed,
             "nodes_completed":  0,
             "sim_duration_s":   float("nan"),
@@ -156,26 +138,22 @@ def _run_trial(seed: int) -> Dict:
 # Terminal output helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-_BAR_WIDTH = 76
+_BAR_WIDTH = 86
 
 
 def _hr(char: str = "─") -> str:
     return char * _BAR_WIDTH
 
 
-def _print_header(n_trials: int, workers: int, seed_start: int,
-                  output: str) -> None:
+def _print_header(total_trials: int, workers: int, output: str) -> None:
     print()
     print(_hr("═"))
-    print("  LAWSS  ·  Inlet Mega-Scale Batch Harness  (20 Drones, 250 Nodes)")
-    print("  Backend: lawss_stage3_inlet_mega.py  "
-          "(dense-cost proximity-braking CasADi MPC)")
+    print("  LAWSS  ·  Inlet Mega-Scale Grid Search Harness")
+    print("  Grid: I_U [4] x T_INT [4]  -> 16 combinations")
     print(_hr("─"))
-    print(f"  Trials    : {n_trials}")
-    print(f"  Seeds     : {seed_start} … {seed_start + n_trials - 1}")
-    print(f"  Workers   : {workers}  "
-          f"(logical CPUs available: {os.cpu_count()})")
-    print(f"  Output    : {output}")
+    print(f"  Total Trials : {total_trials}")
+    print(f"  Workers      : {workers}  (logical CPUs available: {os.cpu_count()})")
+    print(f"  Output       : {output}")
     print(_hr("═"))
     print()
 
@@ -191,8 +169,9 @@ def _print_trial_result(
     idx: int,
     total: int,
     result: Dict,
-    elapsed_wall: float,
 ) -> None:
+    i_u   = result["I_U"]
+    t_int = result["T_INT"]
     seed  = result["seed"]
     nodes = result["nodes_completed"]
     sim_t = result["sim_duration_s"]
@@ -203,11 +182,11 @@ def _print_trial_result(
     w = len(str(total))
     if err is not None:
         tag    = "✗"
-        detail = f"seed={seed:<5}  ERROR: {err.splitlines()[-1][:60]}"
+        detail = f"IU={i_u:.2f} T={t_int:<3} seed={seed:<5}  ERROR: {err.splitlines()[-1][:50]}"
     else:
         tag    = "✓"
         detail = (
-            f"seed={seed:<5}  "
+            f"IU={i_u:.2f} T={t_int:<3} seed={seed:<5}  "
             f"nodes={nodes:>4}  "
             f"sim={_fmt_duration(sim_t):<10}  "
             f"dist={dist:>10.1f} m  "
@@ -247,7 +226,7 @@ def _print_summary(df: pd.DataFrame, n_failed: int) -> None:
 
     print()
     print(_hr("═"))
-    print(f"  Summary  ·  Inlet Mega-Scale (20 Drones / 250 Nodes)")
+    print(f"  Summary  ·  Inlet Mega-Scale Grid Search")
     print(f"  Successful trials : {n_ok} / {n_ok + n_failed}")
     print(_hr("─"))
     print(f"  {'Metric':<{label_w}}  {hdr}")
@@ -273,58 +252,44 @@ def run_batch(
     output:     str  = DEFAULT_OUTPUT,
     quiet:      bool = False,
 ) -> pd.DataFrame:
-    """
-    Run ``n_trials`` inlet mega-scale trials in parallel and return a DataFrame.
-
-    Parameters
-    ----------
-    n_trials : int
-        Number of independent trials to run.
-    seed_start : int
-        Seeds are ``range(seed_start, seed_start + n_trials)``.
-    workers : int
-        Number of parallel worker processes.
-    output : str
-        Path to the output CSV file.
-    quiet : bool
-        Suppress per-trial progress lines; only show the final summary.
-
-    Returns
-    -------
-    pd.DataFrame
-        Columns: seed, nodes_completed, sim_duration_s, fleet_distance_m,
-                 wall_time_s, error.
-    """
-    seeds = list(range(seed_start, seed_start + n_trials))
+    
+    tasks = []
+    for i_u, t_int in itertools.product(I_U_GRID, T_INT_GRID):
+        for s in range(seed_start, seed_start + n_trials):
+            tasks.append((s, i_u, t_int))
+            
+    total_trials = len(tasks)
 
     if not quiet:
-        _print_header(n_trials, workers, seed_start, output)
+        _print_header(total_trials, workers, output)
 
     results: List[Dict] = []
     n_done   = 0
     n_failed = 0
     wall_t0  = time.perf_counter()
 
-    effective_workers = min(workers, n_trials)
+    effective_workers = min(workers, total_trials)
 
     with ProcessPoolExecutor(
         max_workers = effective_workers,
         initializer = _worker_init,
     ) as pool:
 
-        future_to_seed: Dict[Future, int] = {
-            pool.submit(_run_trial, s): s
-            for s in seeds
+        future_to_args: Dict[Future, tuple] = {
+            pool.submit(_run_trial, task): task
+            for task in tasks
         }
 
-        for future in as_completed(future_to_seed):
+        for future in as_completed(future_to_args):
             n_done += 1
             try:
                 result = future.result()
-            except Exception:  # noqa: BLE001
-                seed = future_to_seed[future]
+            except Exception:
+                task = future_to_args[future]
                 result = {
-                    "seed":             seed,
+                    "I_U":              task[1],
+                    "T_INT":            task[2],
+                    "seed":             task[0],
                     "nodes_completed":  0,
                     "sim_duration_s":   float("nan"),
                     "fleet_distance_m": float("nan"),
@@ -339,13 +304,14 @@ def run_batch(
 
             if not quiet:
                 _print_trial_result(
-                    idx          = n_done,
-                    total        = n_trials,
-                    result       = result,
-                    elapsed_wall = time.perf_counter() - wall_t0,
+                    idx    = n_done,
+                    total  = total_trials,
+                    result = result,
                 )
 
     df = pd.DataFrame(results, columns=[
+        "I_U",
+        "T_INT",
         "seed",
         "nodes_completed",
         "sim_duration_s",
@@ -353,7 +319,7 @@ def run_batch(
         "wall_time_s",
         "error",
     ])
-    df = df.sort_values("seed").reset_index(drop=True)
+    df = df.sort_values(by=["I_U", "T_INT", "seed"]).reset_index(drop=True)
 
     try:
         df.to_csv(output, index=False, float_format="%.3f")
@@ -383,11 +349,7 @@ def run_batch(
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog            = "batch_runner_inlet_mega.py",
-        description     = (
-            "Headless parallel batch harness for LAWSS Inlet Mega-Scale "
-            "(20 Drones, 250 Nodes) using the updated dense-cost "
-            "proximity-braking MPC backend."
-        ),
+        description     = "Grid Search HPC harness for LAWSS Inlet Mega-Scale",
         formatter_class = argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -395,25 +357,21 @@ def _build_parser() -> argparse.ArgumentParser:
         type    = int,
         default = DEFAULT_N_TRIALS,
         metavar = "N",
-        help    = "Total number of simulation trials to run.",
+        help    = "Trials per parameter combination.",
     )
     parser.add_argument(
         "--seed-start", "-s",
         type    = int,
         default = DEFAULT_SEED_START,
         metavar = "SEED",
-        help    = "Starting RNG seed.  Seeds are range(seed_start, seed_start+N).",
+        help    = "Starting RNG seed.",
     )
     parser.add_argument(
         "--workers", "-w",
         type    = int,
         default = DEFAULT_WORKERS,
         metavar = "W",
-        help    = (
-            "Number of parallel worker processes.  "
-            f"Defaults to cpu_count-1 ({DEFAULT_WORKERS} on this machine).  "
-            "Each worker builds 20 MPC solvers — lower this on memory-constrained nodes."
-        ),
+        help    = "Number of parallel worker processes.",
     )
     parser.add_argument(
         "--output", "-o",
@@ -430,7 +388,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run",
         action  = "store_true",
-        help    = "Print resolved configuration and exit without running any trials.",
+        help    = "Print resolved configuration and exit without running.",
     )
     return parser
 
@@ -439,28 +397,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = _build_parser()
     args   = parser.parse_args(argv)
 
-    if args.n_trials < 1:
-        parser.error("--n-trials must be >= 1")
-    if args.workers < 1:
-        parser.error("--workers must be >= 1")
-    if args.seed_start < 0:
-        parser.error("--seed-start must be >= 0")
-
     if args.dry_run:
-        print()
-        print(_hr("═"))
-        print("  Dry-run — resolved configuration (no trials will be executed)")
-        print(_hr("─"))
-        print("  backend    : lawss_stage3_inlet_mega.py "
-              "(dense-cost proximity-braking MPC)")
-        print(f"  n_trials   : {args.n_trials}")
-        print(f"  seed_start : {args.seed_start}")
-        print(f"  seeds      : {args.seed_start} … "
-              f"{args.seed_start + args.n_trials - 1}")
-        print(f"  workers    : {args.workers}")
-        print(f"  output     : {os.path.abspath(args.output)}")
-        print(_hr("═"))
-        print()
+        print("  Dry-run — no trials executed.")
         return 0
 
     run_batch(
@@ -472,10 +410,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     return 0
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Guard — essential for ProcessPoolExecutor on Windows / macOS (spawn context)
-# ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     sys.exit(main())
