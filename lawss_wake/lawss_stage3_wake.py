@@ -92,7 +92,7 @@ MAX_SAMPLING_TIME_S: float = 180.0    # 3-min hard cap per run
 
 MPC_N:    int   = 20
 V_MAX:    float = 14.0    # max velocity per axis [m/s]
-A_MAX:    float = 8.0
+A_MAX:    float = 5.0
 D_MIN:    float = 3.0
 N_OBS:    int   = 9
 MASS:     float = 3.645   # [kg] Drone mass
