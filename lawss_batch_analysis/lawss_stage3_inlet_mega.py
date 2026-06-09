@@ -14,8 +14,9 @@ from scipy.optimize import linear_sum_assignment
 # Physical & statistical constants  (inlet physics — injected via os.environ)
 # ─────────────────────────────────────────────────────────────────────────────
 
-FS: float = 10.0
-DT: float = 1.0 / FS
+FS_SAMPLE: float = 10.0
+DT_SAMPLE: float = 1.0 / FS_SAMPLE
+DT_KIN: float    = 1.0  # Decoupled drone kinematics time step
 
 U_MEAN: float   = 12.0
 
@@ -24,7 +25,7 @@ I_U: float   = float(os.environ.get("LAWSS_I_U", "0.10"))
 T_INT: float = float(os.environ.get("LAWSS_T_INT", "5.0"))
 
 SIGMA_U: float   = I_U * U_MEAN
-PHI: float       = np.exp(-DT / T_INT)
+PHI: float       = np.exp(-DT_SAMPLE / T_INT)
 SIGMA_EPS: float = SIGMA_U * np.sqrt(1.0 - PHI**2)
 
 EPSILON_CI: float = 0.05
@@ -35,17 +36,17 @@ N_EFF_MIN: int    = 10
 EMA_ALPHA: float  = 0.05
 LAG1_WARMUP: int  = 20
 
-BURNIN_SAMPLES: int = int(5.0 * T_INT * FS)   # 250 samples
-STAB_WIN: int       = int(5.0 * T_INT * FS)   # 250 samples
+BURNIN_SAMPLES: int = int(5.0 * T_INT * FS_SAMPLE)   # 250 samples
+STAB_WIN: int       = int(5.0 * T_INT * FS_SAMPLE)   # 250 samples
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Scale-up constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-BATTERY_CAPACITY_S: float = 1080.0   # 18-min battery (same as inlet stage 3)
+BATTERY_CAPACITY_S: float = 1080.0   # 18-min battery 
 
-N_DRONES:  int = 20    # SCALE-UP: 20 drones
-N_TARGETS: int = 300   # SCALE-UP: 250 random 3-D nodes
+N_DRONES:  int = 10    # SCALE-UP: 20 drones
+N_TARGETS: int = 250   # SCALE-UP: 200 random 3-D nodes
 
 MAX_SAMPLING_TIME_S: float = 180.0   # 3-minute hard cap per run (unchanged)
 
@@ -84,7 +85,7 @@ class DroneState(Enum):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# WelfordState  — inlet lag-1 variant (UNCHANGED)
+# WelfordState  — inlet lag-1 variant
 # ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass
@@ -115,7 +116,7 @@ class WelfordState:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Drone  — identical logic to lawss_stage3_inlet.py; N_OBS updated to 19
+# Drone
 # ─────────────────────────────────────────────────────────────────────────────
 
 class Drone:
@@ -141,7 +142,7 @@ class Drone:
         self.stats: WelfordState = WelfordState()
         self.samples_this_run: int = 0
 
-        _buf = int(BATTERY_CAPACITY_S * FS)
+        _buf = int(BATTERY_CAPACITY_S * FS_SAMPLE)
         self.hist_raw_velocity: np.ndarray = np.full(_buf, np.nan)
         self.hist_running_mean: np.ndarray = np.full(_buf, np.nan)
         self.hist_ci_rel: np.ndarray       = np.full(_buf, np.nan)
@@ -181,32 +182,29 @@ class Drone:
         p_obs_p  = opti.parameter(3, N_OBS)
         p_obs_v  = opti.parameter(3, N_OBS)
         p_dist   = opti.parameter()
-        p_v_bound = opti.parameter()          # dynamic velocity bound [m/s]
+        p_v_bound = opti.parameter()          
 
-        # Initial state constraint
         opti.subject_to(X[:, 0] == p_init)
 
-        # Horizon constraints
         for k in range(MPC_N):
             pk = X[:3, k]
             vk = X[3:, k]
             ak = U[:, k]
 
-            opti.subject_to(X[:3, k + 1] == pk + vk * DT + 0.5 * ak * DT**2)
-            opti.subject_to(X[3:, k + 1] == vk + ak * DT)
+            opti.subject_to(X[:3, k + 1] == pk + vk * DT_KIN + 0.5 * ak * DT_KIN**2)
+            opti.subject_to(X[3:, k + 1] == vk + ak * DT_KIN)
 
             opti.subject_to(opti.bounded(-p_v_bound, X[3:, k], p_v_bound))
             opti.subject_to(opti.bounded(-A_MAX, U[:, k],  A_MAX))
 
             if k > 0:
                 for j in range(N_OBS):
-                    p_obs_k = p_obs_p[:, j] + p_obs_v[:, j] * (k * DT)
+                    p_obs_k = p_obs_p[:, j] + p_obs_v[:, j] * (k * DT_KIN)
                     opti.subject_to(ca.sumsqr(X[:3, k] - p_obs_k) >= D_MIN**2)
 
-        # Terminal step: velocity bound + collision avoidance
         opti.subject_to(opti.bounded(-p_v_bound, X[3:, MPC_N], p_v_bound))
         for j in range(N_OBS):
-            p_obs_N = p_obs_p[:, j] + p_obs_v[:, j] * (MPC_N * DT)
+            p_obs_N = p_obs_p[:, j] + p_obs_v[:, j] * (MPC_N * DT_KIN)
             opti.subject_to(ca.sumsqr(X[:3, MPC_N] - p_obs_N) >= D_MIN**2)
 
         prox_factor = Q_VEL_PROX / ca.fmax(p_dist, Q_VEL_PROX)
@@ -241,9 +239,6 @@ class Drone:
         dist_to_target = float(np.linalg.norm(self.position - self.target_position))
         self._opti.set_value(self._p_dist, dist_to_target)
 
-        # Kinematic braking envelope: v_safe = sqrt(2 * a_max * d)
-        # Buffer of 0.5 m distance and 0.5 m/s speed slack prevents the
-        # constraint from becoming infeasible in the final approach.
         safe_v = float(np.sqrt(2.0 * A_MAX * max(0.0, dist_to_target - 0.5)))
         dyn_v_bound = min(V_MAX, safe_v + 0.5)
         self._opti.set_value(self._p_v_bound, dyn_v_bound)
@@ -267,7 +262,7 @@ class Drone:
             dist      = float(np.linalg.norm(direction))
             if dist > 1e-3:
                 unit     = direction / dist
-                cruise_v = unit * min(dyn_v_bound * 0.9, dist / (MPC_N * DT))
+                cruise_v = unit * min(dyn_v_bound * 0.9, dist / (MPC_N * DT_KIN))
             else:
                 unit     = np.zeros(3)
                 cruise_v = np.zeros(3)
@@ -275,7 +270,7 @@ class Drone:
             X_init[:3, 0] = self.position
             X_init[3:, 0] = self.velocity
             for k in range(1, MPC_N + 1):
-                X_init[:3, k] = self.position + cruise_v * k * DT
+                X_init[:3, k] = self.position + cruise_v * k * DT_KIN
                 X_init[3:, k] = cruise_v
             U_init = np.zeros((3, MPC_N))
         self._opti.set_initial(self._mpc_X, X_init)
@@ -313,9 +308,9 @@ class Drone:
 
         accel = self._solve_mpc(neighbours)
         self.position = (self.position
-                         + self.velocity * DT
-                         + 0.5 * accel * DT**2)
-        self.velocity = np.clip(self.velocity + accel * DT, -V_MAX, V_MAX)
+                         + self.velocity * DT_KIN
+                         + 0.5 * accel * DT_KIN**2)
+        self.velocity = np.clip(self.velocity + accel * DT_KIN, -V_MAX, V_MAX)
 
         dist  = float(np.linalg.norm(self.position - self.target_position))
         speed = float(np.linalg.norm(self.velocity))
@@ -370,7 +365,7 @@ class Drone:
                 cov_lag     = s.L_mxy - s.L_mux * s.L_muy
                 var_lag     = max(s.L_mx2 - s.L_mux**2, 1e-12)
                 rho1        = np.clip(cov_lag / var_lag, 1e-6, 1.0 - 1e-6)
-                T_new       = -DT / np.log(rho1)
+                T_new       = -DT_SAMPLE / np.log(rho1)
                 s.T_int_est = EMA_ALPHA * T_new + (1.0 - EMA_ALPHA) * s.T_int_est
 
         s.mean_hist[s.hist_ptr % STAB_WIN] = s.wf_mean
@@ -378,7 +373,7 @@ class Drone:
 
     def _check_stopping_conditions(self) -> tuple[bool, bool, bool]:
         s         = self.stats
-        current_T = s.wf_n * DT
+        current_T = s.wf_n * DT_SAMPLE
         var_u     = s.wf_M2 / max(s.wf_n - 1, 1)
 
         sigma_Ubar = np.sqrt(max(2.0 * var_u * s.T_int_est / current_T, 0.0))
@@ -415,7 +410,7 @@ class Drone:
             "mean_est":  s.wf_mean,
             "T_int_est": s.T_int_est,
             "n_samples": self.samples_this_run,
-            "elapsed_s": self.samples_this_run * DT,
+            "elapsed_s": self.samples_this_run * DT_SAMPLE,
         }
         self.completed_node_id = self.target_node_id
         self.target_position   = None
@@ -430,7 +425,7 @@ class Drone:
         if self.battery_depleted:
             return
 
-        self.battery_remaining_s -= DT
+        self.battery_remaining_s -= DT_KIN
         if self.battery_remaining_s <= 0.0:
             self.battery_remaining_s = 0.0
             self.battery_depleted    = True
@@ -455,31 +450,35 @@ class Drone:
             self.update_trajectory(neighbours=neighbours)
 
         elif self.state == DroneState.SAMPLING:
-            u      = self._generate_sample()
-            u_prev = u_prev_store[0]
+            # Generate multiple 10Hz samples spanning the 1s kinematic step
+            num_samples = int(DT_KIN / DT_SAMPLE)
+            for _ in range(num_samples):
+                u      = self._generate_sample()
+                u_prev = u_prev_store[0]
 
-            self._update_welford(u, u_prev)
-            self.samples_this_run += 1
-            u_prev_store[0] = u
+                self._update_welford(u, u_prev)
+                self.samples_this_run += 1
+                u_prev_store[0] = u
 
-            s          = self.stats
-            var_u      = s.wf_M2 / max(s.wf_n - 1, 1)
-            current_T  = s.wf_n * DT
-            sigma_Ubar = np.sqrt(max(2.0 * var_u * s.T_int_est / current_T, 0.0))
-            ci_rel_now = Z_SCORE * sigma_Ubar / max(abs(s.wf_mean), 1e-9)
-            self._record_history(u, ci_rel_now)
+                s          = self.stats
+                var_u      = s.wf_M2 / max(s.wf_n - 1, 1)
+                current_T  = s.wf_n * DT_SAMPLE
+                sigma_Ubar = np.sqrt(max(2.0 * var_u * s.T_int_est / current_T, 0.0))
+                ci_rel_now = Z_SCORE * sigma_Ubar / max(abs(s.wf_mean), 1e-9)
+                self._record_history(u, ci_rel_now)
 
-            # 3-minute hard cap
-            if self.samples_this_run * DT >= MAX_SAMPLING_TIME_S:
-                self._finish_run()
-                return
+                # 3-minute hard cap
+                if self.samples_this_run * DT_SAMPLE >= MAX_SAMPLING_TIME_S:
+                    self._finish_run()
+                    break
 
-            if self.samples_this_run < BURNIN_SAMPLES:
-                return
+                if self.samples_this_run < BURNIN_SAMPLES:
+                    continue
 
-            cond1, cond2, cond3 = self._check_stopping_conditions()
-            if cond1 and cond2 and cond3:
-                self._finish_run()
+                cond1, cond2, cond3 = self._check_stopping_conditions()
+                if cond1 and cond2 and cond3:
+                    self._finish_run()
+                    break
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -488,17 +487,18 @@ class Drone:
 
 class Environment:
     """
-    Mega-scale inlet environment: 20 drones, 250 random 3-D nodes.
+    Mega-scale inlet environment: 20 drones, 300 random 3-D nodes.
     """
 
     # Spawn grid parameters
     _SPAWN_COLS:    int   = 5
-    _SPAWN_ROWS:    int   = 4
+    _SPAWN_ROWS:    int   = 2
     _SPAWN_SPACING: float = 4.0   # [m] — must be > D_MIN = 3.0
 
     def __init__(self, seed: int = 42):
         self.tick_count: int  = 0
         self.elapsed_s: float = 0.0
+        self.sampling_times: List[float] = []
 
         master_rng  = np.random.default_rng(seed)
         drone_seeds = master_rng.integers(0, 2**31, size=N_DRONES)
@@ -551,6 +551,7 @@ class Environment:
             if 0 <= node_id < N_TARGETS:
                 self.target_measured[node_id] = True
                 self.target_locked[node_id]   = False
+                self.sampling_times.append(drone.last_result["elapsed_s"])
             drone.completed_node_id = None
 
     def dispatch(self) -> None:
@@ -604,10 +605,10 @@ class Environment:
         self.dispatch()
 
         self.tick_count += 1
-        self.elapsed_s  += DT
+        self.elapsed_s  += DT_KIN
 
     def run(self, duration_s: float) -> None:
-        for _ in range(int(duration_s / DT)):
+        for _ in range(int(duration_s / DT_KIN)):
             self.step()
 
     @property
@@ -677,7 +678,7 @@ def _smoke_test() -> None:
     print(f"  Build time: {time.perf_counter() - t_build:.2f} s\n")
 
     t0 = time.perf_counter()
-    for _ in range(int(120 / DT)):
+    for _ in range(int(120 / DT_KIN)):
         env.step()
     wall = time.perf_counter() - t0
 

@@ -18,14 +18,14 @@ import pandas as pd
 # Default CLI values
 # ─────────────────────────────────────────────────────────────────────────────
 
-DEFAULT_N_TRIALS:   int = 100
+DEFAULT_N_TRIALS:   int = 10
 DEFAULT_SEED_START: int = 0
 DEFAULT_OUTPUT:     str = "inlet_mega_sweep_results.csv"
 DEFAULT_WORKERS:    int = max(1, (os.cpu_count() or 2) - 1)
 
 # Parameter Sweep Grids
-I_U_GRID = [0.05, 0.10, 0.15, 0.20]
-T_INT_GRID = [3.0, 5.0, 7.0]
+I_U_GRID = np.linspace(0.05, 0.20, 10)
+T_INT_GRID = np.linspace(3.0, 5.0, 5)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -65,7 +65,7 @@ def _run_trial(args: tuple) -> Dict:
         from lawss_stage3_inlet_mega import (
             Environment,
             BATTERY_CAPACITY_S,
-            DT,
+            DT_KIN,
         )
     except ImportError as exc:
         return {
@@ -75,6 +75,9 @@ def _run_trial(args: tuple) -> Dict:
             "nodes_completed":  0,
             "sim_duration_s":   float("nan"),
             "fleet_distance_m": float("nan"),
+            "conv_time_min_s":  float("nan"),
+            "conv_time_max_s":  float("nan"),
+            "conv_time_mean_s": float("nan"),
             "wall_time_s":      0.0,
             "error":            f"Import failed: {exc}",
         }
@@ -83,7 +86,7 @@ def _run_trial(args: tuple) -> Dict:
 
     try:
         env          = Environment(seed=seed)
-        budget_ticks = int(BATTERY_CAPACITY_S / DT)
+        budget_ticks = int(BATTERY_CAPACITY_S / DT_KIN)
 
         n_drones     = len(env.drones)
         prev_pos     = _np.array(
@@ -109,6 +112,14 @@ def _run_trial(args: tuple) -> Dict:
 
         wall_elapsed = _time.perf_counter() - wall_start
 
+        conv_times = env.sampling_times
+        if conv_times:
+            c_min = float(_np.min(conv_times))
+            c_max = float(_np.max(conv_times))
+            c_mean = float(_np.mean(conv_times))
+        else:
+            c_min = c_max = c_mean = float("nan")
+
         return {
             "I_U":              i_u,
             "T_INT":            t_int,
@@ -116,6 +127,9 @@ def _run_trial(args: tuple) -> Dict:
             "nodes_completed":  int(env.n_measured),
             "sim_duration_s":   round(float(env.elapsed_s),  3),
             "fleet_distance_m": round(float(fleet_dist_m),   2),
+            "conv_time_min_s":  round(c_min, 2),
+            "conv_time_max_s":  round(c_max, 2),
+            "conv_time_mean_s": round(c_mean, 2),
             "wall_time_s":      round(float(wall_elapsed),   2),
             "error":            None,
         }
@@ -129,6 +143,9 @@ def _run_trial(args: tuple) -> Dict:
             "nodes_completed":  0,
             "sim_duration_s":   float("nan"),
             "fleet_distance_m": float("nan"),
+            "conv_time_min_s":  float("nan"),
+            "conv_time_max_s":  float("nan"),
+            "conv_time_mean_s": float("nan"),
             "wall_time_s":      round(float(wall_elapsed), 2),
             "error":            traceback.format_exc(),
         }
@@ -175,7 +192,7 @@ def _print_trial_result(
     seed  = result["seed"]
     nodes = result["nodes_completed"]
     sim_t = result["sim_duration_s"]
-    dist  = result["fleet_distance_m"]
+    cmean = result["conv_time_mean_s"]
     wtick = result["wall_time_s"]
     err   = result["error"]
 
@@ -189,7 +206,7 @@ def _print_trial_result(
             f"IU={i_u:.2f} T={t_int:<3} seed={seed:<5}  "
             f"nodes={nodes:>4}  "
             f"sim={_fmt_duration(sim_t):<10}  "
-            f"dist={dist:>10.1f} m  "
+            f"mean_conv={cmean:>6.1f}s  "
             f"({wtick:.1f}s wall)"
         )
     print(f"  {tag}  [{idx:>{w}}/{total}]  {detail}", flush=True)
@@ -201,6 +218,9 @@ def _print_summary(df: pd.DataFrame, n_failed: int) -> None:
 
     metrics = [
         ("Nodes Completed",   "nodes_completed",  ".1f", "nodes"),
+        ("Conv Time Min",     "conv_time_min_s",  ".1f", "s"),
+        ("Conv Time Max",     "conv_time_max_s",  ".1f", "s"),
+        ("Conv Time Mean",    "conv_time_mean_s", ".1f", "s"),
         ("Sim Duration",      "sim_duration_s",   ".1f", "s"),
         ("Fleet Distance",    "fleet_distance_m", ".1f", "m"),
         ("Wall Time / Trial", "wall_time_s",      ".1f", "s"),
@@ -293,6 +313,9 @@ def run_batch(
                     "nodes_completed":  0,
                     "sim_duration_s":   float("nan"),
                     "fleet_distance_m": float("nan"),
+                    "conv_time_min_s":  float("nan"),
+                    "conv_time_max_s":  float("nan"),
+                    "conv_time_mean_s": float("nan"),
                     "wall_time_s":      float("nan"),
                     "error":            traceback.format_exc(),
                 }
@@ -316,6 +339,9 @@ def run_batch(
         "nodes_completed",
         "sim_duration_s",
         "fleet_distance_m",
+        "conv_time_min_s",
+        "conv_time_max_s",
+        "conv_time_mean_s",
         "wall_time_s",
         "error",
     ])

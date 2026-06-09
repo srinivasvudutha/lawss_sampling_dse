@@ -14,8 +14,9 @@ from scipy.optimize import linear_sum_assignment
 # Simulation clock
 # ─────────────────────────────────────────────────────────────────────────────
 
-FS: float = 10.0
-DT: float = 1.0 / FS
+FS_SAMPLE: float = 10.0
+DT_SAMPLE: float = 1.0 / FS_SAMPLE
+DT_KIN: float    = 1.0
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Wake signal parameters  (injected via os.environ for sweeps)
@@ -39,7 +40,7 @@ F_SHED:     float = ST * U_INF / D                   # vortex shedding freq [Hz]
 T_SHED:     float = 1.0 / F_SHED                     # shedding period      [s]
 
 # AR(1) coefficients for the random turbulence component
-PHI_RAND:   float = np.exp(-DT / T_INT_RAND)
+PHI_RAND:   float = np.exp(-DT_SAMPLE / T_INT_RAND)
 SIGMA_EPS:  float = SIGMA_RAND * np.sqrt(1.0 - PHI_RAND**2)
 
 # Effective integral time scale (random variance fraction of total)
@@ -63,17 +64,17 @@ N_SHED_MIN:  int   = 5       # Cond 4: min complete shedding cycles
 N_ACF_UPDATE:  int   = 50
 ACF_EMA_ALPHA: float = 0.3
 
-ACF_BUF_LEN:  int = max(int(4.0 * T_SHED * FS), 400)
-ACF_MAX_LAG:  int = max(int(1.5 * T_SHED * FS), 150)
+ACF_BUF_LEN:  int = max(int(4.0 * T_SHED * FS_SAMPLE), 400)
+ACF_MAX_LAG:  int = max(int(1.5 * T_SHED * FS_SAMPLE), 150)
 
 BURNIN_SAMPLES: int = max(
-    int(5.0 * T_INT_EFF * FS),
-    int(N_SHED_MIN * T_SHED * FS),
+    int(5.0 * T_INT_EFF * FS_SAMPLE),
+    int(N_SHED_MIN * T_SHED * FS_SAMPLE),
 )
 
-STAB_WIN: int = max(int(8.0 * T_INT_EFF * FS), 2)
+STAB_WIN: int = max(int(8.0 * T_INT_EFF * FS_SAMPLE), 2)
 
-PERSIST_SAMPLES: int = int(T_SHED * FS)
+PERSIST_SAMPLES: int = int(T_SHED * FS_SAMPLE)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fleet & operational constants  ── SCALED UP FOR MEGA RUN ──
@@ -185,7 +186,7 @@ class WelfordState:
 
     stab_hist: np.ndarray = field(
         default_factory=lambda: np.full(
-            int(MAX_SAMPLING_TIME_S * FS) + STAB_WIN + 10, np.nan))
+            int(MAX_SAMPLING_TIME_S * FS_SAMPLE) + STAB_WIN + 10, np.nan))
     stab_hist_ptr: int = 0
 
     drift_hist: np.ndarray = field(
@@ -234,7 +235,7 @@ class Drone:
         self.stats: WelfordState = WelfordState()
         self.samples_this_run: int = 0
 
-        _buf = int(BATTERY_CAPACITY_S * FS)
+        _buf = int(BATTERY_CAPACITY_S * FS_SAMPLE)
         self.hist_raw_velocity: np.ndarray = np.full(_buf, np.nan)
         self.hist_running_mean: np.ndarray = np.full(_buf, np.nan)
         self.hist_ci_rel: np.ndarray       = np.full(_buf, np.nan)
@@ -282,20 +283,20 @@ class Drone:
             vk = X[3:, k]
             ak = U[:, k]
 
-            opti.subject_to(X[:3, k + 1] == pk + vk * DT + 0.5 * ak * DT**2)
-            opti.subject_to(X[3:, k + 1] == vk + ak * DT)
+            opti.subject_to(X[:3, k + 1] == pk + vk * DT_KIN + 0.5 * ak * DT_KIN**2)
+            opti.subject_to(X[3:, k + 1] == vk + ak * DT_KIN)
 
             opti.subject_to(opti.bounded(-p_v_bound, X[3:, k], p_v_bound))
             opti.subject_to(opti.bounded(-A_MAX, U[:, k],  A_MAX))
 
             if k > 0:
                 for j in range(N_OBS):
-                    p_obs_k = p_obs_p[:, j] + p_obs_v[:, j] * (k * DT)
+                    p_obs_k = p_obs_p[:, j] + p_obs_v[:, j] * (k * DT_KIN)
                     opti.subject_to(ca.sumsqr(X[:3, k] - p_obs_k) >= D_MIN**2)
 
         opti.subject_to(opti.bounded(-p_v_bound, X[3:, MPC_N], p_v_bound))
         for j in range(N_OBS):
-            p_obs_N = p_obs_p[:, j] + p_obs_v[:, j] * (MPC_N * DT)
+            p_obs_N = p_obs_p[:, j] + p_obs_v[:, j] * (MPC_N * DT_KIN)
             opti.subject_to(ca.sumsqr(X[:3, MPC_N] - p_obs_N) >= D_MIN**2)
 
         prox_factor = Q_VEL_PROX / ca.fmax(p_dist, Q_VEL_PROX)
@@ -351,7 +352,7 @@ class Drone:
             dist      = float(np.linalg.norm(direction))
             if dist > 1e-3:
                 unit     = direction / dist
-                cruise_v = unit * min(dyn_v_bound * 0.9, dist / (MPC_N * DT))
+                cruise_v = unit * min(dyn_v_bound * 0.9, dist / (MPC_N * DT_KIN))
             else:
                 unit     = np.zeros(3)
                 cruise_v = np.zeros(3)
@@ -359,7 +360,7 @@ class Drone:
             X_init[:3, 0] = self.position
             X_init[3:, 0] = self.velocity
             for k in range(1, MPC_N + 1):
-                X_init[:3, k] = self.position + cruise_v * k * DT
+                X_init[:3, k] = self.position + cruise_v * k * DT_KIN
                 X_init[3:, k] = cruise_v
             U_init = np.zeros((3, MPC_N))
         self._opti.set_initial(self._mpc_X, X_init)
@@ -395,9 +396,9 @@ class Drone:
 
         accel = self._solve_mpc(neighbours)
         self.position = (self.position
-                         + self.velocity * DT
-                         + 0.5 * accel * DT**2)
-        self.velocity = np.clip(self.velocity + accel * DT, -V_MAX, V_MAX)
+                         + self.velocity * DT_KIN
+                         + 0.5 * accel * DT_KIN**2)
+        self.velocity = np.clip(self.velocity + accel * DT_KIN, -V_MAX, V_MAX)
 
         dist  = float(np.linalg.norm(self.position - self.target_position))
         speed = float(np.linalg.norm(self.velocity))
@@ -430,7 +431,7 @@ class Drone:
         self._u_rand_prime = PHI_RAND * self._u_rand_prime + eps
         u_rand = self._u_rand_prime
 
-        t_local = self.samples_this_run * DT
+        t_local = self.samples_this_run * DT_SAMPLE
         u_shed  = SIGMA_RAND * np.sqrt(2.0) * np.sin(
             2.0 * np.pi * F_SHED * t_local + self.phase0
         )
@@ -455,7 +456,7 @@ class Drone:
                 and self.samples_this_run % N_ACF_UPDATE == 0):
             start   = s.buf_idx % ACF_BUF_LEN
             ordered = np.concatenate([s.acf_buffer[start:], s.acf_buffer[:start]])
-            T_new   = acf_zero_crossing_T_int(ordered, DT, ACF_MAX_LAG)
+            T_new   = acf_zero_crossing_T_int(ordered, DT_SAMPLE, ACF_MAX_LAG)
             if np.isfinite(T_new) and T_new > 0.0:
                 s.T_int_eff_cur = (
                     ACF_EMA_ALPHA * T_new
@@ -464,7 +465,7 @@ class Drone:
 
     def _check_stopping_conditions(self) -> tuple[bool, bool, bool, bool]:
         s         = self.stats
-        current_T = s.wf_n * DT
+        current_T = s.wf_n * DT_SAMPLE
         var_u     = s.wf_M2 / max(s.wf_n - 1, 1)
 
         sigma_Ubar = np.sqrt(
@@ -504,7 +505,7 @@ class Drone:
             "mean_est":      s.wf_mean,
             "T_int_eff_est": s.T_int_eff_cur,
             "n_samples":     self.samples_this_run,
-            "elapsed_s":     self.samples_this_run * DT,
+            "elapsed_s":     self.samples_this_run * DT_SAMPLE,
         }
         self.completed_node_id = self.target_node_id
         self.target_position   = None
@@ -518,7 +519,7 @@ class Drone:
         if self.battery_depleted:
             return
 
-        self.battery_remaining_s -= DT
+        self.battery_remaining_s -= DT_KIN
         if self.battery_remaining_s <= 0.0:
             self.battery_remaining_s = 0.0
             self.battery_depleted    = True
@@ -542,28 +543,32 @@ class Drone:
             self.update_trajectory(neighbours=neighbours)
 
         elif self.state == DroneState.SAMPLING:
-            u = self._generate_sample()
-            self._update_welford(u)
-            self.samples_this_run += 1
+            # Sub-step the sampling to generate 10Hz measurements throughout the 1s kinematic interval
+            num_samples = int(DT_KIN / DT_SAMPLE)
+            for _ in range(num_samples):
+                u = self._generate_sample()
+                self._update_welford(u)
+                self.samples_this_run += 1
 
-            s          = self.stats
-            var_u      = s.wf_M2 / max(s.wf_n - 1, 1)
-            current_T  = s.wf_n * DT
-            sigma_Ubar = np.sqrt(
-                max(2.0 * var_u * s.T_int_eff_cur / current_T, 0.0))
-            ci_rel_now = Z_SCORE * sigma_Ubar / max(abs(s.wf_mean), 1e-9)
-            self._record_history(u, ci_rel_now)
+                s          = self.stats
+                var_u      = s.wf_M2 / max(s.wf_n - 1, 1)
+                current_T  = s.wf_n * DT_SAMPLE
+                sigma_Ubar = np.sqrt(
+                    max(2.0 * var_u * s.T_int_eff_cur / current_T, 0.0))
+                ci_rel_now = Z_SCORE * sigma_Ubar / max(abs(s.wf_mean), 1e-9)
+                self._record_history(u, ci_rel_now)
 
-            if self.samples_this_run * DT >= MAX_SAMPLING_TIME_S:
-                self._finish_run()
-                return
+                if self.samples_this_run * DT_SAMPLE >= MAX_SAMPLING_TIME_S:
+                    self._finish_run()
+                    break
 
-            if self.samples_this_run < BURNIN_SAMPLES:
-                return
+                if self.samples_this_run < BURNIN_SAMPLES:
+                    continue
 
-            cond1, cond2, cond3, cond4 = self._check_stopping_conditions()
-            if cond1 and cond2 and cond3 and cond4:
-                self._finish_run()
+                cond1, cond2, cond3, cond4 = self._check_stopping_conditions()
+                if cond1 and cond2 and cond3 and cond4:
+                    self._finish_run()
+                    break
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -578,6 +583,7 @@ class Environment:
     def __init__(self, seed: int = 42):
         self.tick_count: int  = 0
         self.elapsed_s: float = 0.0
+        self.sampling_times: List[float] = []
 
         master_rng  = np.random.default_rng(seed)
         drone_seeds = master_rng.integers(0, 2**31, size=N_DRONES)
@@ -616,6 +622,7 @@ class Environment:
             if 0 <= node_id < N_TARGETS:
                 self.target_measured[node_id] = True
                 self.target_locked[node_id]   = False
+                self.sampling_times.append(drone.last_result["elapsed_s"])
             drone.completed_node_id = None
 
     def dispatch(self) -> None:
@@ -667,10 +674,10 @@ class Environment:
         self._collect_completions()
         self.dispatch()
         self.tick_count += 1
-        self.elapsed_s  += DT
+        self.elapsed_s  += DT_KIN
 
     def run(self, duration_s: float) -> None:
-        for _ in range(int(duration_s / DT)):
+        for _ in range(int(duration_s / DT_KIN)):
             self.step()
 
     @property
@@ -713,8 +720,8 @@ def _smoke_test() -> None:
     env = Environment(seed=0)
     print(f"  Build time: {time.perf_counter() - t0:.2f} s\n")
 
-    budget_ticks = int(BATTERY_CAPACITY_S / DT)
-    report_every = int(60.0 / DT)
+    budget_ticks = int(BATTERY_CAPACITY_S / DT_KIN)
+    report_every = int(60.0 / DT_KIN)
     wall_start   = time.perf_counter()
     early_stop   = None
 
