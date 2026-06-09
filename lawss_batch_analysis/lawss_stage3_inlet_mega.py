@@ -15,7 +15,7 @@ from scipy.optimize import linear_sum_assignment
 # ─────────────────────────────────────────────────────────────────────────────
 
 FS: float = 10.0
-DT: float = 1.0 / FS
+DT: float = 10.0 / FS
 
 U_MEAN: float   = 12.0
 

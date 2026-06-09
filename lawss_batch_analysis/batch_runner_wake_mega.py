@@ -18,10 +18,10 @@ import pandas as pd
 # Default CLI values
 # ─────────────────────────────────────────────────────────────────────────────
 
-DEFAULT_N_TRIALS:   int = 100
+DEFAULT_N_TRIALS:   int = 10
 DEFAULT_SEED_START: int = 0
 DEFAULT_OUTPUT:     str = "wake_mega_sweep_results.csv"
-DEFAULT_WORKERS:    int = max(1, (os.cpu_count() or 2) - 1)
+DEFAULT_WORKERS:    int = 3
 
 # Parameter Sweep Grids
 I_U_GRID = [0.20, 0.25, 0.30, 0.35]
