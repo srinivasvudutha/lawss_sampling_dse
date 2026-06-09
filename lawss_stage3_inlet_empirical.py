@@ -44,7 +44,7 @@ except Exception as e:
 # ─────────────────────────────────────────────────────────────────────────────
 
 FS: float = 10.0
-DT: float = 1.0 / FS
+DT: float = 5.0 / FS
 
 U_MEAN: float = 12.0 # Baseline fallback for initializing arrays
 T_INT: float  = 5.0

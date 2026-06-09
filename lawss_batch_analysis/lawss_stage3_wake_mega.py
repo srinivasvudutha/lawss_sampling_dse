@@ -14,9 +14,14 @@ from scipy.optimize import linear_sum_assignment
 # Simulation clock
 # ─────────────────────────────────────────────────────────────────────────────
 
+<<<<<<< HEAD
 FS_SAMPLE: float = 10.0
 DT_SAMPLE: float = 1.0 / FS_SAMPLE
 DT_KIN: float    = 1.0
+=======
+FS: float = 10.0
+DT: float = 10.0 / FS
+>>>>>>> 0a927a8c32b658ec429e6476afe7403f62023569
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Wake signal parameters  (injected via os.environ for sweeps)

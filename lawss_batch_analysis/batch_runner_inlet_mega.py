@@ -21,11 +21,16 @@ import pandas as pd
 DEFAULT_N_TRIALS:   int = 10
 DEFAULT_SEED_START: int = 0
 DEFAULT_OUTPUT:     str = "inlet_mega_sweep_results.csv"
-DEFAULT_WORKERS:    int = max(1, (os.cpu_count() or 2) - 1)
+DEFAULT_WORKERS:    int = 3
 
 # Parameter Sweep Grids
+<<<<<<< HEAD
 I_U_GRID = np.linspace(0.05, 0.20, 10)
 T_INT_GRID = np.linspace(3.0, 5.0, 5)
+=======
+I_U_GRID = np.linspace(0.05, 0.2, 2)
+T_INT_GRID = np.linspace(3, 7, 2)
+>>>>>>> 0a927a8c32b658ec429e6476afe7403f62023569
 
 
 # ─────────────────────────────────────────────────────────────────────────────
