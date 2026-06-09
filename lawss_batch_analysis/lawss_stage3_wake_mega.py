@@ -14,14 +14,9 @@ from scipy.optimize import linear_sum_assignment
 # Simulation clock
 # ─────────────────────────────────────────────────────────────────────────────
 
-<<<<<<< HEAD
 FS_SAMPLE: float = 10.0
 DT_SAMPLE: float = 1.0 / FS_SAMPLE
 DT_KIN: float    = 1.0
-=======
-FS: float = 10.0
-DT: float = 10.0 / FS
->>>>>>> 0a927a8c32b658ec429e6476afe7403f62023569
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Wake signal parameters  (injected via os.environ for sweeps)
@@ -86,8 +81,8 @@ PERSIST_SAMPLES: int = int(T_SHED * FS_SAMPLE)
 # ─────────────────────────────────────────────────────────────────────────────
 
 BATTERY_CAPACITY_S:  float = 1080.0   # 18-min battery (unchanged)
-N_TARGETS:           int   = 600      # 600 random 3-D nodes
-N_DRONES:            int   = 50       # 50 drones
+N_TARGETS:           int   = 100      # 600 random 3-D nodes
+N_DRONES:            int   = 10       # 50 drones
 MAX_SAMPLING_TIME_S: float = 180.0    # 3-min hard cap per run (unchanged)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -117,7 +112,7 @@ _OBS_SENTINEL = np.array([1e6, 1e6, 1e6], dtype=float)
 # ─────────────────────────────────────────────────────────────────────────────
 
 _SPAWN_ROWS: int   = 5
-_SPAWN_COLS: int   = 10
+_SPAWN_COLS: int   = 2
 _SPAWN_STEP: float = 4.0   # metres between adjacent drones in both axes
 
 assert _SPAWN_ROWS * _SPAWN_COLS == N_DRONES, (
