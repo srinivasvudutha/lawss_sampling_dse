@@ -89,7 +89,7 @@ def plot_heatmap(pivot, title, cbar_label, filename, fmt=".1f", cmap="viridis"):
 
     fig.tight_layout()
     out_path = os.path.join(OUTPUT_DIR, filename)
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     print(f"Saved: {out_path}")
     return fig
 

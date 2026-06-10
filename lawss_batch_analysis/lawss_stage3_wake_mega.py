@@ -83,7 +83,7 @@ PERSIST_SAMPLES: int = int(T_SHED * FS_SAMPLE)
 BATTERY_CAPACITY_S:  float = 1080.0   # 18-min battery (unchanged)
 N_TARGETS:           int   = 100      # 600 random 3-D nodes
 N_DRONES:            int   = 10       # 50 drones
-MAX_SAMPLING_TIME_S: float = 180.0    # 3-min hard cap per run (unchanged)
+MAX_SAMPLING_TIME_S: float = 240.0    # 3-min hard cap per run (unchanged)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MPC constants  ── N_OBS MUST equal N_DRONES - 1 ──
