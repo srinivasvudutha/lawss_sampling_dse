@@ -1,12 +1,9 @@
 """
 sweep_heatmaps.py
 
-Reads inlet_mega_sweep_results.csv and wake_mega_sweep_results.csv,
-groups each by (I_U, T_INT), averages the nodes-sampled and mean
-convergence time over the 10 trials per group, then produces two
-heatmaps per dataset (4 figures total).
-
-Adjust the INPUT_DIR / OUTPUT_DIR paths at the top if needed.
+Reads a single sweep results CSV file, groups it by (I_U, T_INT), 
+averages the nodes-sampled and mean convergence time, then produces 
+two heatmaps: Pink-Purple for nodes, and Blue-Yellow for convergence time.
 """
 
 import os
@@ -15,12 +12,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
-# ── Paths ──────────────────────────────────────────────────────────────────────
-INPUT_DIR  = "."          # folder containing the two CSV files
-OUTPUT_DIR = "."          # folder where the four PNGs will be saved
+# ── Paths & Configurations ───────────────────────────────────────────────────
+INPUT_DIR  = "."          # folder containing the CSV file
+OUTPUT_DIR = "."          # folder where the PNGs will be saved
 
-INLET_CSV = os.path.join(INPUT_DIR, "inlet_mega_sweep_results.csv")
-WAKE_CSV  = os.path.join(INPUT_DIR, "wake_mega_sweep_results.csv")
+DATA_CSV   = os.path.join(INPUT_DIR, "mega_sweep_results.csv")
+NODES_COL  = "nodes_completed"  # Adjust if your column name is different
 
 # ── Helper ─────────────────────────────────────────────────────────────────────
 
@@ -47,7 +44,7 @@ def build_pivot_tables(csv_path, nodes_col):
     return pivot_nodes, pivot_conv
 
 
-def plot_heatmap(pivot, title, cbar_label, filename, fmt=".1f", cmap="viridis"):
+def plot_heatmap(pivot, title, cbar_label, filename, fmt=".1f", cmap="YlGnBu"):
     """
     Draw a single annotated heatmap and save it to OUTPUT_DIR.
     """
@@ -79,11 +76,16 @@ def plot_heatmap(pivot, title, cbar_label, filename, fmt=".1f", cmap="viridis"):
                 txt = "nan"
             else:
                 txt = f"{val:{fmt}}"
-            # pick contrasting text colour
+            
+            # Normalize to find contrast threshold
             norm_val = (val - np.nanmin(pivot.values)) / (
                 np.nanmax(pivot.values) - np.nanmin(pivot.values) + 1e-12
             )
-            text_color = "white" if norm_val < 0.55 else "black"
+            
+            # For both RdPu and YlGnBu, higher values are darker (purple/blue), 
+            # while lower values are lighter (pink/yellow).
+            text_color = "white" if norm_val > 0.48 else "black"
+            
             ax.text(j, i, txt, ha="center", va="center",
                     fontsize=7, color=text_color)
 
@@ -94,51 +96,30 @@ def plot_heatmap(pivot, title, cbar_label, filename, fmt=".1f", cmap="viridis"):
     return fig
 
 
-# ── Inlet ──────────────────────────────────────────────────────────────────────
+# ── Processing ─────────────────────────────────────────────────────────────────
 
-print("Processing inlet …")
-pivot_inlet_nodes, pivot_inlet_conv = build_pivot_tables(INLET_CSV, "nodes_completed")
+print(f"Processing {DATA_CSV} …")
+pivot_nodes, pivot_conv = build_pivot_tables(DATA_CSV, NODES_COL)
 
-fig_inlet_nodes = plot_heatmap(
-    pivot_inlet_nodes,
-    title      = "Inlet sweep – Mean nodes sampled per (I_U, T_INT)",
+# Nodes Heatmap: Pink-Purple (using the 'RdPu' sequential colormap)
+fig_nodes = plot_heatmap(
+    pivot_nodes,
+    title      = "Sweep Results – Mean nodes sampled per (I_U, T_INT)",
     cbar_label = "Mean nodes sampled",
-    filename   = "inlet_heatmap_nodes.png",
+    filename   = "sweep_heatmap_nodes.png",
     fmt        = ".1f",
-    cmap       = "plasma",
+    cmap       = "RdPu",
 )
 
-fig_inlet_conv = plot_heatmap(
-    pivot_inlet_conv,
-    title      = "Inlet sweep – Mean convergence time per (I_U, T_INT)",
+# Convergence Heatmap: Blue-Yellow (using the 'YlGnBu' colormap)
+fig_conv = plot_heatmap(
+    pivot_conv,
+    title      = "Sweep Results – Mean convergence time per (I_U, T_INT)",
     cbar_label = "Mean convergence time (s)",
-    filename   = "inlet_heatmap_conv_time.png",
+    filename   = "sweep_heatmap_conv_time.png",
     fmt        = ".2f",
-    cmap       = "viridis",
+    cmap       = "YlGnBu",
 )
 
-# ── Wake ───────────────────────────────────────────────────────────────────────
-
-print("Processing wake …")
-pivot_wake_nodes, pivot_wake_conv = build_pivot_tables(WAKE_CSV, "nodes_measured")
-
-fig_wake_nodes = plot_heatmap(
-    pivot_wake_nodes,
-    title      = "Wake sweep – Mean nodes sampled per (I_U, T_INT)",
-    cbar_label = "Mean nodes sampled",
-    filename   = "wake_heatmap_nodes.png",
-    fmt        = ".1f",
-    cmap       = "plasma",
-)
-
-fig_wake_conv = plot_heatmap(
-    pivot_wake_conv,
-    title      = "Wake sweep – Mean convergence time per (I_U, T_INT)",
-    cbar_label = "Mean convergence time (s)",
-    filename   = "wake_heatmap_conv_time.png",
-    fmt        = ".2f",
-    cmap       = "viridis",
-)
-
-print("Done. All four heatmaps saved.")
+print("Done. Both heatmaps saved.")
 plt.show()
