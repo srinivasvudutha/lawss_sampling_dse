@@ -29,7 +29,7 @@ PHI: float       = np.exp(-DT_SAMPLE / T_INT)
 SIGMA_EPS: float = SIGMA_U * np.sqrt(1.0 - PHI**2)
 
 EPSILON_CI: float = 0.05
-DELTA_STAB: float = 0.01
+DELTA_STAB: float = 0.05
 Z_SCORE: float    = 1.96
 N_EFF_MIN: int    = 10
 
@@ -44,11 +44,11 @@ STAB_WIN: int       = int(5.0 * T_INT * FS_SAMPLE)   # 250 samples
 # ─────────────────────────────────────────────────────────────────────────────
 
 BATTERY_CAPACITY_S: float = 1080.0   # 18-min battery 
+ratio = 3/8
+N_DRONES:  int = 20    
+N_TARGETS: int = 20
 
-N_DRONES:  int = 10    # SCALE-UP: 20 drones
-N_TARGETS: int = 250   # SCALE-UP: 200 random 3-D nodes
-
-MAX_SAMPLING_TIME_S: float = 180.0   # 3-minute hard cap per run (unchanged)
+MAX_SAMPLING_TIME_S: float = 240   # 3-minute hard cap per run (unchanged)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MPC constants
@@ -492,7 +492,7 @@ class Environment:
 
     # Spawn grid parameters
     _SPAWN_COLS:    int   = 5
-    _SPAWN_ROWS:    int   = 2
+    _SPAWN_ROWS:    int   = 4
     _SPAWN_SPACING: float = 4.0   # [m] — must be > D_MIN = 3.0
 
     def __init__(self, seed: int = 42):
@@ -518,10 +518,14 @@ class Environment:
                     row * self._SPAWN_SPACING,
                     0.0,
                 ], dtype=float))
-        assert len(spawn_positions) == N_DRONES, (
-            f"Spawn grid mismatch: {len(spawn_positions)} positions "
-            f"for {N_DRONES} drones"
+                
+        # ─── FIX: Ensure we have enough grid slots, then trim to N_DRONES ───
+        assert len(spawn_positions) >= N_DRONES, (
+            f"Spawn grid too small: Only {len(spawn_positions)} positions available "
+            f"for {N_DRONES} drones. Increase _SPAWN_ROWS or _SPAWN_COLS."
         )
+        spawn_positions = spawn_positions[:N_DRONES]
+        # ────────────────────────────────────────────────────────────────────
 
         self.drones: list[Drone] = [
             Drone(

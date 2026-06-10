@@ -18,7 +18,7 @@ import pandas as pd
 # Default CLI values
 # ─────────────────────────────────────────────────────────────────────────────
 
-DEFAULT_N_TRIALS:   int = 10
+DEFAULT_N_TRIALS:   int = 1
 DEFAULT_SEED_START: int = 0
 DEFAULT_OUTPUT:     str = "inlet_mega_sweep_results.csv"
 DEFAULT_WORKERS:    int = 15
