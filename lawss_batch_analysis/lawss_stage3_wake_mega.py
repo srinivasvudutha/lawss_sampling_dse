@@ -80,20 +80,20 @@ PERSIST_SAMPLES: int = int(T_SHED * FS_SAMPLE)
 # Fleet & operational constants  ── SCALED UP FOR MEGA RUN ──
 # ─────────────────────────────────────────────────────────────────────────────
 
-BATTERY_CAPACITY_S:  float = 270.0
+BATTERY_CAPACITY_S:  float = 300.0
 N_DRONES:  int = 70
 N_TARGETS: int = 70
-MAX_SAMPLING_TIME_S: float = 270.0
+MAX_SAMPLING_TIME_S: float = 240.0
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MPC constants  ── N_OBS MUST equal N_DRONES - 1 ──
+# MPC constants  ── N_OBS capped to nearest neighbours for solver tractability ──
 # ─────────────────────────────────────────────────────────────────────────────
 
 MPC_N:    int   = 20
 V_MAX:    float = 14.0    # max velocity per axis [m/s]
 A_MAX:    float = 8.0
 D_MIN:    float = 3.0
-N_OBS:    int   = N_DRONES - 1   # Dynamically sizes based on N_DRONES
+N_OBS:    int   = min(5, N_DRONES - 1)   # Cap to nearest neighbours to keep MPC tractable
 MASS:     float = 3.645   # [kg] Drone mass
 Q_STAGE:  float = 1.0
 Q_TERM:   float = 100.0
@@ -256,7 +256,7 @@ class Drone:
 
         opti.solver(
             'ipopt',
-            {'expand': True, 'print_time': 0},
+            {'expand': False, 'print_time': 0},
             {
                 'max_iter':              200,
                 'tol':                   1e-3,
@@ -332,6 +332,13 @@ class Drone:
         safe_v = float(np.sqrt(2.0 * A_MAX * max(0.0, dist_to_target - 0.5)))
         dyn_v_bound = min(V_MAX, safe_v + 0.5)
         self._opti.set_value(self._p_v_bound, dyn_v_bound)
+
+        # Sort neighbours by distance and keep only the closest N_OBS
+        if len(neighbours) > N_OBS:
+            neighbours = sorted(
+                neighbours,
+                key=lambda nb: float(np.linalg.norm(nb[0] - self.position))
+            )[:N_OBS]
 
         obs_p = np.empty((3, N_OBS), dtype=float)
         obs_v = np.zeros((3, N_OBS), dtype=float)
@@ -712,7 +719,7 @@ def _smoke_test() -> None:
     print(f"  Battery: {BATTERY_CAPACITY_S:.0f} s ({BATTERY_CAPACITY_S/60:.0f} min)  "
           f"|  RTH threshold: {RTH_THRESHOLD*100:.0f}%  "
           f"|  Hard cap: {MAX_SAMPLING_TIME_S:.0f} s")
-    print(f"  N_OBS = {N_OBS}  (N_DRONES - 1)")
+    print(f"  N_OBS = {N_OBS}  (nearest neighbours tracked, capped from {N_DRONES - 1})")
     print()
     print(f"  Building {N_DRONES} MPC solvers …")
 

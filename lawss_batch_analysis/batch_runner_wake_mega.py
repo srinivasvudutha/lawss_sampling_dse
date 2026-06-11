@@ -21,10 +21,10 @@ import pandas as pd
 DEFAULT_N_TRIALS:   int = 1
 DEFAULT_SEED_START: int = 0
 DEFAULT_OUTPUT:     str = "wake_mega_sweep_results.csv"
-DEFAULT_WORKERS:    int = 15
+DEFAULT_WORKERS:    int = 10
 
 # Parameter Sweep Grids
-I_U_GRID = np.linspace(0.25, 0.40, 15)
+I_U_GRID = np.linspace(0.25, 0.40, 16)
 T_INT_GRID = np.linspace(3.0, 7.0, 9)
 
 
