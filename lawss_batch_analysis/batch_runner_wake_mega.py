@@ -65,6 +65,7 @@ def _run_trial(args: tuple) -> Dict:
             Environment,
             BATTERY_CAPACITY_S,
             DT_KIN,
+            N_TARGETS,
         )
     except ImportError as exc:
         return {
@@ -72,6 +73,7 @@ def _run_trial(args: tuple) -> Dict:
             "T_INT":             t_int,
             "seed":              seed,
             "nodes_measured":    0,
+            "n_targets":         0,
             "total_assignments": 0,
             "sim_elapsed_s":     float("nan"),
             "total_survey_time_s": float("nan"),
@@ -112,6 +114,7 @@ def _run_trial(args: tuple) -> Dict:
             "T_INT":             t_int,
             "seed":              seed,
             "nodes_measured":    int(env.n_measured),
+            "n_targets":         int(N_TARGETS),
             "total_assignments": int(env._assignments_made),
             "sim_elapsed_s":     round(float(env.elapsed_s),    3),
             "total_survey_time_s": total_survey_time_s,
@@ -129,6 +132,7 @@ def _run_trial(args: tuple) -> Dict:
             "T_INT":             t_int,
             "seed":              seed,
             "nodes_measured":    0,
+            "n_targets":         int(N_TARGETS) if 'N_TARGETS' in dir() else 0,
             "total_assignments": 0,
             "sim_elapsed_s":     float("nan"),
             "total_survey_time_s": float("nan"),
@@ -172,15 +176,16 @@ def _print_header(total_trials: int, workers: int, output: str) -> None:
 
 
 def _print_trial(idx: int, total: int, result: Dict) -> None:
-    i_u    = result["I_U"]
-    t_int  = result["T_INT"]
-    seed   = result["seed"]
-    nodes  = result["nodes_measured"]
-    assn   = result["total_assignments"]
-    sim_t  = result["sim_elapsed_s"]
-    cmean  = result["conv_time_mean_s"]
-    wall   = result["wall_time_s"]
-    err    = result["error"]
+    i_u       = result["I_U"]
+    t_int     = result["T_INT"]
+    seed      = result["seed"]
+    nodes     = result["nodes_measured"]
+    n_targets = result.get("n_targets", nodes)   # fallback: at least as many as measured
+    assn      = result["total_assignments"]
+    sim_t     = result["sim_elapsed_s"]
+    cmean     = result["conv_time_mean_s"]
+    wall      = result["wall_time_s"]
+    err       = result["error"]
 
     w = len(str(total))
     if err is not None:
@@ -190,7 +195,7 @@ def _print_trial(idx: int, total: int, result: Dict) -> None:
         tag    = "✓"
         detail = (
             f"IU={i_u:.2f} T={t_int:<3} seed={seed:<5}  "
-            f"nodes={nodes:>3}/600  "
+            f"nodes={nodes:>3}/{n_targets}  "
             f"assigns={assn:>4}  "
             f"sim={_fmt_duration(sim_t):<10}  "
             f"mean_conv={cmean:>6.1f}s  "
@@ -324,6 +329,7 @@ def run_batch(
                     "T_INT":             task[2],
                     "seed":              task[0],
                     "nodes_measured":    0,
+                    "n_targets":         0,
                     "total_assignments": 0,
                     "sim_elapsed_s":     float("nan"),
                     "total_survey_time_s": float("nan"),
@@ -347,6 +353,7 @@ def run_batch(
         "T_INT",
         "seed",
         "nodes_measured",
+        "n_targets",
         "total_assignments",
         "sim_elapsed_s",
         "total_survey_time_s",

@@ -81,8 +81,8 @@ PERSIST_SAMPLES: int = int(T_SHED * FS_SAMPLE)
 # ─────────────────────────────────────────────────────────────────────────────
 
 BATTERY_CAPACITY_S:  float = 1080.0
-N_DRONES:  int = 60
-N_TARGETS: int = 62
+N_DRONES:  int = 70
+N_TARGETS: int = 70
 MAX_SAMPLING_TIME_S: float = 300.0
 
 # ─────────────────────────────────────────────────────────────────────────────
