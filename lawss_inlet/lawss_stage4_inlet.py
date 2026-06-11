@@ -48,20 +48,45 @@ ENV_LIM: float = 100.0           # cubic domain side length [m]
 BG_DARK = (18,  20,  28)
 FG_TEXT = (210, 215, 230)
 
-# Per-drone colours as float RGBA (0–1) and integer RGB (0–255)
-DRONE_COLORS_F: List[tuple] = [
-    (0.18, 0.60, 1.00, 1.0),   # 0  azure
-    (1.00, 0.32, 0.32, 1.0),   # 1  coral
-    (0.18, 0.88, 0.70, 1.0),   # 2  teal
-    (1.00, 0.65, 0.10, 1.0),   # 3  amber
-    (0.80, 0.35, 1.00, 1.0),   # 4  violet
-    (0.30, 0.85, 1.00, 1.0),   # 5  sky
-    (0.35, 1.00, 0.55, 1.0),   # 6  mint
-    (1.00, 0.30, 0.65, 1.0),   # 7  hot pink
-    (0.90, 0.90, 0.15, 1.0),   # 8  lime
-    (0.65, 0.50, 1.00, 1.0),   # 9  lavender
-]
-DRONE_COLORS_I = [tuple(int(x * 255) for x in c[:3]) for c in DRONE_COLORS_F]
+# Maximum number of panels shown in the 2-D dashboard grid (5 rows × 2 cols)
+MAX_DASHBOARD_PANELS: int = 10
+
+def _make_drone_colors(n: int) -> tuple:
+    """
+    Generate `n` visually distinct RGBA colours using the golden-ratio HSV
+    method.  Returns (colors_f, colors_i) where:
+      colors_f – list of (r, g, b, 1.0) float tuples  (0–1 range)
+      colors_i – list of (r, g, b)       int   tuples  (0–255 range)
+    Works for any n ≥ 1, including n > 10.
+    """
+    import colorsys
+    # Start with 10 hand-picked colours so the first 10 drones look great,
+    # then fall back to the golden-ratio generator for extras.
+    _fixed = [
+        (0.18, 0.60, 1.00, 1.0),   # 0  azure
+        (1.00, 0.32, 0.32, 1.0),   # 1  coral
+        (0.18, 0.88, 0.70, 1.0),   # 2  teal
+        (1.00, 0.65, 0.10, 1.0),   # 3  amber
+        (0.80, 0.35, 1.00, 1.0),   # 4  violet
+        (0.30, 0.85, 1.00, 1.0),   # 5  sky
+        (0.35, 1.00, 0.55, 1.0),   # 6  mint
+        (1.00, 0.30, 0.65, 1.0),   # 7  hot pink
+        (0.90, 0.90, 0.15, 1.0),   # 8  lime
+        (0.65, 0.50, 1.00, 1.0),   # 9  lavender
+    ]
+    colors_f = list(_fixed[:n])
+    # Golden-ratio fill for any drone beyond index 9
+    golden = 0.618033988749895
+    hue = 0.61  # start hue for extras
+    for _ in range(n - len(colors_f)):
+        hue = (hue + golden) % 1.0
+        r, g, b = colorsys.hsv_to_rgb(hue, 0.75, 0.95)
+        colors_f.append((r, g, b, 1.0))
+    colors_i = [tuple(int(x * 255) for x in c[:3]) for c in colors_f]
+    return colors_f, colors_i
+
+# Build palettes sized to N_DRONES at import time
+DRONE_COLORS_F, DRONE_COLORS_I = _make_drone_colors(N_DRONES)
 
 # Node status colours as float RGBA arrays
 COL_NODE_FREE     = np.array([0.55, 0.55, 0.65, 0.55], dtype=np.float32)
@@ -347,7 +372,7 @@ class Scene3D:
 
         # Drone positions + state-dependent appearance
         sizes        = np.full(N_DRONES, 9.0,  dtype=np.float32)
-        drone_colors = np.array(DRONE_COLORS_F, dtype=np.float32)
+        drone_colors = np.array(DRONE_COLORS_F, dtype=np.float32)  # (N_DRONES, 4)
 
         for ds in snap.drones:
             i = ds.id
@@ -625,14 +650,18 @@ def _build_main_window(env: Environment):
     glw.setMinimumWidth(480)
     content_layout.addWidget(glw, stretch=45)
 
+    # Build exactly MAX_DASHBOARD_PANELS (10) plots regardless of N_DRONES.
+    # Each panel is assigned to drone IDs 0..min(N_DRONES,10)-1; if
+    # N_DRONES < 10, only the first N_DRONES panels are populated.
+    n_panels = min(MAX_DASHBOARD_PANELS, N_DRONES)
     drone_panels: List[DronePanel] = []
     for row in range(5):
         for col in range(2):
             drone_id = row * 2 + col
-            # addPlot returns a PlotItem — exactly what DronePanel expects
             pi = glw.addPlot(row=row, col=col)
             pi.setContentsMargins(1, 1, 1, 1)
-            drone_panels.append(DronePanel(pi, drone_id))
+            if drone_id < n_panels:
+                drone_panels.append(DronePanel(pi, drone_id))
 
     # ── GUI timer — drains the snapshot queue on the GUI thread ───────────────
     def _on_timer() -> None:
@@ -646,7 +675,8 @@ def _build_main_window(env: Environment):
         if snap is not None:
             hud.update(snap)
             scene3d.update(snap)
-            for panel, ds in zip(drone_panels, snap.drones):
+            # Only update the panels that were created (first n_panels drones)
+            for panel, ds in zip(drone_panels, snap.drones[:n_panels]):
                 panel.update(ds)
 
     timer = QTimer(win)

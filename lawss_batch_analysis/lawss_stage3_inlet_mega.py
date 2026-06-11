@@ -30,7 +30,7 @@ SIGMA_EPS: float = SIGMA_U * np.sqrt(1.0 - PHI**2)
 
 EPSILON_CI: float = 0.05
 DELTA_STAB: float = 0.05
-Z_SCORE: float    = 1.96
+Z_SCORE: float    = 1.645
 N_EFF_MIN: int    = 6
 
 EMA_ALPHA: float  = 0.05

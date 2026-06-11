@@ -54,7 +54,7 @@ T_INT_EFF:    float = ALPHA_FRAC * T_INT_RAND        # what ACF estimator conver
 EPSILON_CI:  float = 0.10    # Cond 1: Z·σ_Ū/Ū  < 10 %
 DELTA_STAB:  float = 0.05    # Cond 2: mean drift < 2 %
 Z_SCORE:     float = 1.645   # 90 % confidence
-N_EFF_MIN:   int   = 15      # Cond 3: min independent samples
+N_EFF_MIN:   int   = 6      # Cond 3: min independent samples
 N_SHED_MIN:  int   = 5       # Cond 4: min complete shedding cycles
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -80,10 +80,10 @@ PERSIST_SAMPLES: int = int(T_SHED * FS_SAMPLE)
 # Fleet & operational constants  ── SCALED UP FOR MEGA RUN ──
 # ─────────────────────────────────────────────────────────────────────────────
 
-BATTERY_CAPACITY_S:  float = 1080.0
+BATTERY_CAPACITY_S:  float = 270.0
 N_DRONES:  int = 70
 N_TARGETS: int = 70
-MAX_SAMPLING_TIME_S: float = 300.0
+MAX_SAMPLING_TIME_S: float = 270.0
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MPC constants  ── N_OBS MUST equal N_DRONES - 1 ──
@@ -103,7 +103,7 @@ R_CTRL:      float = 0.1
 
 ARRIVAL_DIST:  float = 0.5
 ARRIVAL_SPEED: float = 0.3
-RTH_THRESHOLD: float = 0.07
+RTH_THRESHOLD: float = 0.0
 
 _OBS_SENTINEL = np.array([1e6, 1e6, 1e6], dtype=float)
 

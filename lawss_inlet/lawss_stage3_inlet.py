@@ -25,9 +25,9 @@ PHI: float       = np.exp(-DT / T_INT)
 SIGMA_EPS: float = SIGMA_U * np.sqrt(1.0 - PHI**2)
 
 EPSILON_CI: float = 0.05
-DELTA_STAB: float = 0.01
+DELTA_STAB: float = 0.05
 Z_SCORE: float    = 1.96
-N_EFF_MIN: int    = 10
+N_EFF_MIN: int    = 6
 
 EMA_ALPHA: float  = 0.05
 LAG1_WARMUP: int  = 20
@@ -39,12 +39,12 @@ STAB_WIN: int       = int(5.0 * T_INT * FS)   # 250 samples
 BATTERY_CAPACITY_S: float = 1080.0
 
 # FIX 4: 100 random 3-D targets
-N_TARGETS: int = 1
+N_TARGETS: int = 40
 
-N_DRONES: int = 1
+N_DRONES: int = 15
 
 # FIX 6: 3-minute hard cap on a single sampling run
-MAX_SAMPLING_TIME_S: float = 180.0
+MAX_SAMPLING_TIME_S: float = 240.0
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MPC constants  (unchanged from Stage 3)
