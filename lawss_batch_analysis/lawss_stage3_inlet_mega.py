@@ -31,7 +31,7 @@ SIGMA_EPS: float = SIGMA_U * np.sqrt(1.0 - PHI**2)
 EPSILON_CI: float = 0.05
 DELTA_STAB: float = 0.05
 Z_SCORE: float    = 1.96
-N_EFF_MIN: int    = 10
+N_EFF_MIN: int    = 6
 
 EMA_ALPHA: float  = 0.05
 LAG1_WARMUP: int  = 20
@@ -44,7 +44,6 @@ STAB_WIN: int       = int(5.0 * T_INT * FS_SAMPLE)   # 250 samples
 # ─────────────────────────────────────────────────────────────────────────────
 
 BATTERY_CAPACITY_S: float = 1080.0   # 18-min battery 
-ratio = 3/8
 N_DRONES:  int = 20    
 N_TARGETS: int = 20
 
@@ -601,7 +600,7 @@ class Environment:
         for i, drone in enumerate(self.drones):
             neighbours = [
                 snap for j, (snap, d) in enumerate(zip(snapshot, self.drones))
-                if j != i and d.state in (DroneState.TRANSIT, DroneState.RTH)
+                if j != i and d.state in (DroneState.TRANSIT, DroneState.RTH, DroneState.SAMPLING)
             ]
             drone.tick(self._u_prev[i], neighbours=neighbours)
 
