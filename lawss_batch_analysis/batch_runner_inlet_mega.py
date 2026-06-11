@@ -69,17 +69,18 @@ def _run_trial(args: tuple) -> Dict:
         )
     except ImportError as exc:
         return {
-            "I_U":              i_u,
-            "T_INT":            t_int,
-            "seed":             seed,
-            "nodes_completed":  0,
-            "sim_duration_s":   float("nan"),
-            "fleet_distance_m": float("nan"),
-            "conv_time_min_s":  float("nan"),
-            "conv_time_max_s":  float("nan"),
-            "conv_time_mean_s": float("nan"),
-            "wall_time_s":      0.0,
-            "error":            f"Import failed: {exc}",
+            "I_U":                  i_u,
+            "T_INT":                t_int,
+            "seed":                 seed,
+            "nodes_completed":      0,
+            "sim_duration_s":       float("nan"),
+            "total_survey_time_s":  float("nan"),
+            "fleet_distance_m":     float("nan"),
+            "conv_time_min_s":      float("nan"),
+            "conv_time_max_s":      float("nan"),
+            "conv_time_mean_s":     float("nan"),
+            "wall_time_s":          0.0,
+            "error":                f"Import failed: {exc}",
         }
 
     wall_start = _time.perf_counter()
@@ -120,34 +121,42 @@ def _run_trial(args: tuple) -> Dict:
         else:
             c_min = c_max = c_mean = float("nan")
 
+        # total_survey_time_s: sim-clock time at which the last node was
+        # confirmed measured (or battery ran out if not all measured).
+        # This equals env.elapsed_s at loop exit and represents the total
+        # mission duration needed to cover all sampled target points.
+        total_survey_time_s = round(float(env.elapsed_s), 3) if env.all_measured else float("nan")
+
         return {
-            "I_U":              i_u,
-            "T_INT":            t_int,
-            "seed":             seed,
-            "nodes_completed":  int(env.n_measured),
-            "sim_duration_s":   round(float(env.elapsed_s),  3),
-            "fleet_distance_m": round(float(fleet_dist_m),   2),
-            "conv_time_min_s":  round(c_min, 2),
-            "conv_time_max_s":  round(c_max, 2),
-            "conv_time_mean_s": round(c_mean, 2),
-            "wall_time_s":      round(float(wall_elapsed),   2),
-            "error":            None,
+            "I_U":                  i_u,
+            "T_INT":                t_int,
+            "seed":                 seed,
+            "nodes_completed":      int(env.n_measured),
+            "sim_duration_s":       round(float(env.elapsed_s),  3),
+            "total_survey_time_s":  total_survey_time_s,
+            "fleet_distance_m":     round(float(fleet_dist_m),   2),
+            "conv_time_min_s":      round(c_min, 2),
+            "conv_time_max_s":      round(c_max, 2),
+            "conv_time_mean_s":     round(c_mean, 2),
+            "wall_time_s":          round(float(wall_elapsed),   2),
+            "error":                None,
         }
 
     except Exception:
         wall_elapsed = _time.perf_counter() - wall_start
         return {
-            "I_U":              i_u,
-            "T_INT":            t_int,
-            "seed":             seed,
-            "nodes_completed":  0,
-            "sim_duration_s":   float("nan"),
-            "fleet_distance_m": float("nan"),
-            "conv_time_min_s":  float("nan"),
-            "conv_time_max_s":  float("nan"),
-            "conv_time_mean_s": float("nan"),
-            "wall_time_s":      round(float(wall_elapsed), 2),
-            "error":            traceback.format_exc(),
+            "I_U":                  i_u,
+            "T_INT":                t_int,
+            "seed":                 seed,
+            "nodes_completed":      0,
+            "sim_duration_s":       float("nan"),
+            "total_survey_time_s":  float("nan"),
+            "fleet_distance_m":     float("nan"),
+            "conv_time_min_s":      float("nan"),
+            "conv_time_max_s":      float("nan"),
+            "conv_time_mean_s":     float("nan"),
+            "wall_time_s":          round(float(wall_elapsed), 2),
+            "error":                traceback.format_exc(),
         }
 
 
@@ -217,13 +226,14 @@ def _print_summary(df: pd.DataFrame, n_failed: int) -> None:
     n_ok = len(ok)
 
     metrics = [
-        ("Nodes Completed",   "nodes_completed",  ".1f", "nodes"),
-        ("Conv Time Min",     "conv_time_min_s",  ".1f", "s"),
-        ("Conv Time Max",     "conv_time_max_s",  ".1f", "s"),
-        ("Conv Time Mean",    "conv_time_mean_s", ".1f", "s"),
-        ("Sim Duration",      "sim_duration_s",   ".1f", "s"),
-        ("Fleet Distance",    "fleet_distance_m", ".1f", "m"),
-        ("Wall Time / Trial", "wall_time_s",      ".1f", "s"),
+        ("Nodes Completed",    "nodes_completed",     ".1f", "nodes"),
+        ("Total Survey Time",  "total_survey_time_s", ".1f", "s"),
+        ("Conv Time Min",      "conv_time_min_s",     ".1f", "s"),
+        ("Conv Time Max",      "conv_time_max_s",     ".1f", "s"),
+        ("Conv Time Mean",     "conv_time_mean_s",    ".1f", "s"),
+        ("Sim Duration",       "sim_duration_s",      ".1f", "s"),
+        ("Fleet Distance",     "fleet_distance_m",    ".1f", "m"),
+        ("Wall Time / Trial",  "wall_time_s",         ".1f", "s"),
     ]
 
     label_w = 22
@@ -307,17 +317,18 @@ def run_batch(
             except Exception:
                 task = future_to_args[future]
                 result = {
-                    "I_U":              task[1],
-                    "T_INT":            task[2],
-                    "seed":             task[0],
-                    "nodes_completed":  0,
-                    "sim_duration_s":   float("nan"),
-                    "fleet_distance_m": float("nan"),
-                    "conv_time_min_s":  float("nan"),
-                    "conv_time_max_s":  float("nan"),
-                    "conv_time_mean_s": float("nan"),
-                    "wall_time_s":      float("nan"),
-                    "error":            traceback.format_exc(),
+                    "I_U":                  task[1],
+                    "T_INT":                task[2],
+                    "seed":                 task[0],
+                    "nodes_completed":      0,
+                    "sim_duration_s":       float("nan"),
+                    "total_survey_time_s":  float("nan"),
+                    "fleet_distance_m":     float("nan"),
+                    "conv_time_min_s":      float("nan"),
+                    "conv_time_max_s":      float("nan"),
+                    "conv_time_mean_s":     float("nan"),
+                    "wall_time_s":          float("nan"),
+                    "error":                traceback.format_exc(),
                 }
 
             if result["error"] is not None:
@@ -338,6 +349,7 @@ def run_batch(
         "seed",
         "nodes_completed",
         "sim_duration_s",
+        "total_survey_time_s",
         "fleet_distance_m",
         "conv_time_min_s",
         "conv_time_max_s",

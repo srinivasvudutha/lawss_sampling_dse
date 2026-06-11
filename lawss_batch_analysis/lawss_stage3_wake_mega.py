@@ -80,11 +80,10 @@ PERSIST_SAMPLES: int = int(T_SHED * FS_SAMPLE)
 # Fleet & operational constants  ── SCALED UP FOR MEGA RUN ──
 # ─────────────────────────────────────────────────────────────────────────────
 
-BATTERY_CAPACITY_S:  float = 1080.0   # 18-min battery (unchanged)
-ratio = 0.65
+BATTERY_CAPACITY_S:  float = 1080.0
 N_DRONES:  int = 60
 N_TARGETS: int = 62
-MAX_SAMPLING_TIME_S: float = 300.0    # 3-min hard cap per run (unchanged)
+MAX_SAMPLING_TIME_S: float = 300.0
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MPC constants  ── N_OBS MUST equal N_DRONES - 1 ──
@@ -92,7 +91,7 @@ MAX_SAMPLING_TIME_S: float = 300.0    # 3-min hard cap per run (unchanged)
 
 MPC_N:    int   = 20
 V_MAX:    float = 14.0    # max velocity per axis [m/s]
-A_MAX:    float = 2.0
+A_MAX:    float = 8.0
 D_MIN:    float = 3.0
 N_OBS:    int   = N_DRONES - 1   # Dynamically sizes based on N_DRONES
 MASS:     float = 3.645   # [kg] Drone mass

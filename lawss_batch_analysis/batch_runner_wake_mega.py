@@ -74,6 +74,7 @@ def _run_trial(args: tuple) -> Dict:
             "nodes_measured":    0,
             "total_assignments": 0,
             "sim_elapsed_s":     float("nan"),
+            "total_survey_time_s": float("nan"),
             "conv_time_min_s":   float("nan"),
             "conv_time_max_s":   float("nan"),
             "conv_time_mean_s":  float("nan"),
@@ -102,6 +103,10 @@ def _run_trial(args: tuple) -> Dict:
         else:
             c_min = c_max = c_mean = float("nan")
 
+        # total_survey_time_s: sim-clock time at which the last node was
+        # confirmed measured (or NaN if budget exhausted before completion).
+        total_survey_time_s = round(float(env.elapsed_s), 3) if env.all_measured else float("nan")
+
         return {
             "I_U":               i_u,
             "T_INT":             t_int,
@@ -109,6 +114,7 @@ def _run_trial(args: tuple) -> Dict:
             "nodes_measured":    int(env.n_measured),
             "total_assignments": int(env._assignments_made),
             "sim_elapsed_s":     round(float(env.elapsed_s),    3),
+            "total_survey_time_s": total_survey_time_s,
             "conv_time_min_s":   round(c_min, 2),
             "conv_time_max_s":   round(c_max, 2),
             "conv_time_mean_s":  round(c_mean, 2),
@@ -125,6 +131,7 @@ def _run_trial(args: tuple) -> Dict:
             "nodes_measured":    0,
             "total_assignments": 0,
             "sim_elapsed_s":     float("nan"),
+            "total_survey_time_s": float("nan"),
             "conv_time_min_s":   float("nan"),
             "conv_time_max_s":   float("nan"),
             "conv_time_mean_s":  float("nan"),
@@ -197,13 +204,14 @@ def _print_summary(df: pd.DataFrame, n_failed: int, total_wall: float) -> None:
     n_ok = len(ok)
 
     metrics = [
-        ("Nodes Measured",    "nodes_measured",    ".1f", "nodes"),
-        ("Total Assignments", "total_assignments", ".1f", ""),
-        ("Conv Time Min",     "conv_time_min_s",   ".1f", "s"),
-        ("Conv Time Max",     "conv_time_max_s",   ".1f", "s"),
-        ("Conv Time Mean",    "conv_time_mean_s",  ".1f", "s"),
-        ("Sim Duration",      "sim_elapsed_s",     ".1f", "s"),
-        ("Wall Time / Trial", "wall_time_s",       ".1f", "s"),
+        ("Nodes Measured",    "nodes_measured",      ".1f", "nodes"),
+        ("Total Assignments", "total_assignments",   ".1f", ""),
+        ("Total Survey Time", "total_survey_time_s", ".1f", "s"),
+        ("Conv Time Min",     "conv_time_min_s",     ".1f", "s"),
+        ("Conv Time Max",     "conv_time_max_s",     ".1f", "s"),
+        ("Conv Time Mean",    "conv_time_mean_s",    ".1f", "s"),
+        ("Sim Duration",      "sim_elapsed_s",       ".1f", "s"),
+        ("Wall Time / Trial", "wall_time_s",         ".1f", "s"),
     ]
 
     label_w = 22
@@ -301,6 +309,7 @@ def run_batch(
                     "nodes_measured":    0,
                     "total_assignments": 0,
                     "sim_elapsed_s":     float("nan"),
+                    "total_survey_time_s": float("nan"),
                     "conv_time_min_s":   float("nan"),
                     "conv_time_max_s":   float("nan"),
                     "conv_time_mean_s":  float("nan"),
@@ -323,6 +332,7 @@ def run_batch(
         "nodes_measured",
         "total_assignments",
         "sim_elapsed_s",
+        "total_survey_time_s",
         "conv_time_min_s",
         "conv_time_max_s",
         "conv_time_mean_s",

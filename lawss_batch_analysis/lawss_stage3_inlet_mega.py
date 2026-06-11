@@ -44,8 +44,8 @@ STAB_WIN: int       = int(5.0 * T_INT * FS_SAMPLE)   # 250 samples
 # ─────────────────────────────────────────────────────────────────────────────
 
 BATTERY_CAPACITY_S: float = 1080.0   # 18-min battery 
-N_DRONES:  int = 20    
-N_TARGETS: int = 20
+N_DRONES:  int = 15    
+N_TARGETS: int = 30
 
 MAX_SAMPLING_TIME_S: float = 240   # 3-minute hard cap per run (unchanged)
 
