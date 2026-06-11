@@ -251,6 +251,23 @@ def _print_summary(df: pd.DataFrame, n_failed: int, total_wall: float) -> None:
               f"|  speed-up : {sim_sum / total_wall:.1f}×")
 
     print(_hr("═"))
+
+    # Highlighted single-line callout for the headline metric
+    survey_s = ok["total_survey_time_s"].dropna()
+    if not survey_s.empty:
+        n_complete      = len(survey_s)
+        mean_s          = survey_s.mean()
+        std_s           = survey_s.std(ddof=1) if len(survey_s) > 1 else 0.0
+        completion_rate = 100.0 * n_complete / n_ok if n_ok else 0.0
+        print(
+            f"\n  ★  Mean time to sample all nodes : "
+            f"{mean_s:.1f} s  (±{std_s:.1f} s)  "
+            f"over {n_complete} completed trials  "
+            f"[{completion_rate:.0f}% completion rate]"
+        )
+    else:
+        print("\n  ★  Mean time to sample all nodes : — (no trials completed all nodes)")
+
     if n_failed:
         print(f"\n  ⚠  {n_failed} trial(s) failed — "
               "see 'error' column in the CSV for details.")
