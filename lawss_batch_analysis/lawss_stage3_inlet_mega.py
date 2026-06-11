@@ -28,7 +28,7 @@ SIGMA_U: float   = I_U * U_MEAN
 PHI: float       = np.exp(-DT_SAMPLE / T_INT)
 SIGMA_EPS: float = SIGMA_U * np.sqrt(1.0 - PHI**2)
 
-EPSILON_CI: float = 0.05
+EPSILON_CI: float = 0.08
 DELTA_STAB: float = 0.05
 Z_SCORE: float    = 1.645
 N_EFF_MIN: int    = 6
@@ -47,7 +47,7 @@ BATTERY_CAPACITY_S: float = 1080.0   # 18-min battery
 N_DRONES:  int = 15    
 N_TARGETS: int = 30
 
-MAX_SAMPLING_TIME_S: float = 300   # 3-minute hard cap per run (unchanged)
+MAX_SAMPLING_TIME_S: float = 360   # 3-minute hard cap per run (unchanged)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MPC constants
@@ -385,8 +385,11 @@ class Drone:
 
         # ── ADAPTIVE STAB_WIN: anchor to current T_int estimate ──────────────
         adaptive_win = max(int(5.0 * s.T_int_est / DT_SAMPLE), 50)
-        oldest_ptr   = s.hist_ptr % adaptive_win
-        oldest       = s.mean_hist[oldest_ptr % STAB_WIN]   # STAB_WIN is buffer size cap
+        actual_win   = min(adaptive_win, STAB_WIN) # Clamp to array size limit
+
+        # Step backward from the current write head, wrapping around
+        oldest_ptr   = (s.hist_ptr - actual_win) % STAB_WIN
+        oldest       = s.mean_hist[oldest_ptr]
         # ─────────────────────────────────────────────────────────────────────
         if np.isfinite(oldest):
             stab  = abs(s.wf_mean - oldest) / max(abs(s.wf_mean), 1e-9)
