@@ -175,7 +175,7 @@ def _print_header(total_trials: int, workers: int, output: str) -> None:
     print()
     print(_hr("═"))
     print("  LAWSS  ·  Inlet Mega-Scale Grid Search Harness")
-    print("  Grid: I_U [4] x T_INT [4]  -> 16 combinations")
+    print(f"  Grid: I_U [{len(I_U_GRID)}] x T_INT [{len(T_INT_GRID)}]  -> {len(I_U_GRID)*len(T_INT_GRID)} combinations")
     print(_hr("─"))
     print(f"  Total Trials : {total_trials}")
     print(f"  Workers      : {workers}  (logical CPUs available: {os.cpu_count()})")
