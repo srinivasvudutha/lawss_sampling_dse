@@ -109,6 +109,18 @@ def _run_trial(args: tuple) -> Dict:
         # confirmed measured (or NaN if budget exhausted before completion).
         total_survey_time_s = round(float(env.elapsed_s), 3) if env.all_measured else float("nan")
 
+        # GPR heteroscedastic noise variance summary across completed nodes.
+        # var_Ubar = 2·σ²_u·T_int/T  [m²/s²] — the σ²_n(x_i) diagonal entries.
+        ns = env.noise_variance_summary()
+        vb_min    = round(ns.get("var_Ubar_min",    float("nan")), 6)
+        vb_max    = round(ns.get("var_Ubar_max",    float("nan")), 6)
+        vb_mean   = round(ns.get("var_Ubar_mean",   float("nan")), 6)
+        vb_median = round(ns.get("var_Ubar_median", float("nan")), 6)
+        vb_std    = round(ns.get("var_Ubar_std",    float("nan")), 6)
+        sig_mean  = round(ns.get("sigma_Ubar_mean", float("nan")), 5)
+        ci_mean   = round(ns.get("ci_rel_mean",     float("nan")), 4)
+        ci_max    = round(ns.get("ci_rel_max",      float("nan")), 4)
+
         return {
             "I_U":               i_u,
             "T_INT":             t_int,
@@ -122,6 +134,15 @@ def _run_trial(args: tuple) -> Dict:
             "conv_time_max_s":   round(c_max, 2),
             "conv_time_mean_s":  round(c_mean, 2),
             "wall_time_s":       round(float(wall_elapsed),     2),
+            # ── GPR noise variance columns ─────────────────────────────────────
+            "var_Ubar_min":      vb_min,
+            "var_Ubar_max":      vb_max,
+            "var_Ubar_mean":     vb_mean,
+            "var_Ubar_median":   vb_median,
+            "var_Ubar_std":      vb_std,
+            "sigma_Ubar_mean":   sig_mean,
+            "ci_rel_mean":       ci_mean,
+            "ci_rel_max":        ci_max,
             "error":             None,
         }
 
@@ -140,6 +161,14 @@ def _run_trial(args: tuple) -> Dict:
             "conv_time_max_s":   float("nan"),
             "conv_time_mean_s":  float("nan"),
             "wall_time_s":       round(float(wall_elapsed), 2),
+            "var_Ubar_min":      float("nan"),
+            "var_Ubar_max":      float("nan"),
+            "var_Ubar_mean":     float("nan"),
+            "var_Ubar_median":   float("nan"),
+            "var_Ubar_std":      float("nan"),
+            "sigma_Ubar_mean":   float("nan"),
+            "ci_rel_mean":       float("nan"),
+            "ci_rel_max":        float("nan"),
             "error":             traceback.format_exc(),
         }
 
@@ -217,6 +246,11 @@ def _print_summary(df: pd.DataFrame, n_failed: int, total_wall: float) -> None:
         ("Conv Time Mean",    "conv_time_mean_s",    ".1f", "s"),
         ("Sim Duration",      "sim_elapsed_s",       ".1f", "s"),
         ("Wall Time / Trial", "wall_time_s",         ".1f", "s"),
+        ("var_Ubar mean",     "var_Ubar_mean",       ".6f", "m2/s2"),
+        ("var_Ubar max",      "var_Ubar_max",        ".6f", "m2/s2"),
+        ("sigma_Ubar mean",   "sigma_Ubar_mean",     ".5f", "m/s"),
+        ("CI_rel mean",       "ci_rel_mean",         ".4f", ""),
+        ("CI_rel max",        "ci_rel_max",          ".4f", ""),
     ]
 
     label_w = 22
@@ -361,6 +395,14 @@ def run_batch(
         "conv_time_max_s",
         "conv_time_mean_s",
         "wall_time_s",
+        "var_Ubar_min",
+        "var_Ubar_max",
+        "var_Ubar_mean",
+        "var_Ubar_median",
+        "var_Ubar_std",
+        "sigma_Ubar_mean",
+        "ci_rel_mean",
+        "ci_rel_max",
         "error",
     ])
     df = df.sort_values(by=["I_U", "T_INT", "seed"]).reset_index(drop=True)

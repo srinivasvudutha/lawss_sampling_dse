@@ -507,14 +507,41 @@ class Drone:
         self._hist_ptr += 1
 
     def _finish_run(self) -> None:
-        s = self.stats
+        s         = self.stats
+        current_T = self.samples_this_run * DT_SAMPLE
+
+        # Sample variance of the raw velocity signal (Welford online estimate)
+        var_u = s.wf_M2 / max(s.wf_n - 1, 1)
+
+        # Standard error of the time-averaged mean using the Lumley-Panofsky
+        # formula: Var(Ū) = 2 · σ²_u · T_int / T
+        # This is the heteroscedastic noise variance to inject into the GPR
+        # diagonal: σ²_n(x_i) = var_Ubar_i
+        var_Ubar   = max(2.0 * var_u * s.T_int_eff_cur / max(current_T, 1e-9), 0.0)
+        sigma_Ubar = float(np.sqrt(var_Ubar))
+
+        # Relative CI at the stopping Z-score — stored for diagnostic reference
+        ci_rel_final = (
+            Z_SCORE * sigma_Ubar / max(abs(s.wf_mean), 1e-9)
+        )
+
         self.last_result = {
-            "node_id":       self.target_node_id,
-            "position":      self.position.copy(),
-            "mean_est":      s.wf_mean,
-            "T_int_eff_est": s.T_int_eff_cur,
-            "n_samples":     self.samples_this_run,
-            "elapsed_s":     self.samples_this_run * DT_SAMPLE,
+            "node_id":        self.target_node_id,
+            "position":       self.position.copy(),
+            "mean_est":       s.wf_mean,
+            "T_int_eff_est":  s.T_int_eff_cur,
+            "n_samples":      self.samples_this_run,
+            "elapsed_s":      current_T,
+            # ── GPR heteroscedastic noise quantities ──────────────────────────
+            # var_u      : sample variance of the raw velocity [m²/s²]
+            # var_Ubar   : variance of the running mean = Var(Ū) [m²/s²]
+            #              → feed as σ²_n(x_i) into the GPR diagonal noise matrix
+            # sigma_Ubar : standard error of the mean [m/s]
+            # ci_rel     : Z · σ_Ū / |Ū|  (dimensionless relative CI at stop)
+            "var_u":          float(var_u),
+            "var_Ubar":       float(var_Ubar),
+            "sigma_Ubar":     sigma_Ubar,
+            "ci_rel_final":   float(ci_rel_final),
         }
         self.completed_node_id = self.target_node_id
         self.target_position   = None
@@ -629,6 +656,11 @@ class Environment:
         self._dispatch_calls:   int = 0
         self._assignments_made: int = 0
 
+        # Per-node measurement results keyed by node_id.
+        # Each entry is the full last_result dict from the drone that measured
+        # it, including var_Ubar for GPR heteroscedastic noise injection.
+        self.node_results: dict[int, dict] = {}
+
     def _collect_completions(self) -> None:
         for drone in self.drones:
             if drone.abandoned_node_id is not None:
@@ -645,6 +677,9 @@ class Environment:
                 self.target_measured[node_id] = True
                 self.target_locked[node_id]   = False
                 self.sampling_times.append(drone.last_result["elapsed_s"])
+                # Store the complete measurement result (including var_Ubar)
+                # so the caller can retrieve GPR noise variances after the run.
+                self.node_results[node_id] = drone.last_result
             drone.completed_node_id = None
 
     def dispatch(self) -> None:
@@ -710,16 +745,74 @@ class Environment:
     def all_measured(self) -> bool:
         return bool(self.target_measured.all())
 
+    @property
+    def gpr_noise_variances(self) -> dict[int, float]:
+        """Return {node_id: var_Ubar} for every completed node.
+
+        var_Ubar = 2 · σ²_u · T_int_eff / T  [m²/s²]
+
+        This is the per-observation heteroscedastic noise variance that should
+        be placed on the diagonal of the GPR noise matrix Σ_n so that the
+        posterior correctly accounts for the statistical uncertainty in each
+        time-averaged velocity measurement.
+        """
+        return {nid: res["var_Ubar"] for nid, res in self.node_results.items()}
+
+    @property
+    def gpr_sigma_Ubar(self) -> dict[int, float]:
+        """Return {node_id: sigma_Ubar} (standard error of the mean) [m/s]."""
+        return {nid: res["sigma_Ubar"] for nid, res in self.node_results.items()}
+
+    def noise_variance_summary(self) -> dict:
+        """Descriptive statistics of var_Ubar across all completed nodes.
+
+        Keys
+        ----
+        n_nodes         : number of completed nodes
+        var_Ubar_min    : minimum variance of the mean   [m²/s²]
+        var_Ubar_max    : maximum variance of the mean   [m²/s²]
+        var_Ubar_mean   : mean variance of the mean      [m²/s²]
+        var_Ubar_median : median variance of the mean    [m²/s²]
+        var_Ubar_std    : std-dev of var_Ubar across nodes
+        sigma_Ubar_mean : mean standard error of mean    [m/s]
+        ci_rel_mean     : mean relative CI at stop (Z·σ_Ū/|Ū|)
+        ci_rel_max      : worst-case relative CI at stop
+        """
+        if not self.node_results:
+            return {"n_nodes": 0}
+
+        var_arr   = np.array([r["var_Ubar"]     for r in self.node_results.values()])
+        sig_arr   = np.array([r["sigma_Ubar"]   for r in self.node_results.values()])
+        ci_arr    = np.array([r["ci_rel_final"] for r in self.node_results.values()])
+
+        return {
+            "n_nodes":         len(var_arr),
+            "var_Ubar_min":    float(np.min(var_arr)),
+            "var_Ubar_max":    float(np.max(var_arr)),
+            "var_Ubar_mean":   float(np.mean(var_arr)),
+            "var_Ubar_median": float(np.median(var_arr)),
+            "var_Ubar_std":    float(np.std(var_arr, ddof=1)) if len(var_arr) > 1 else 0.0,
+            "sigma_Ubar_mean": float(np.mean(sig_arr)),
+            "ci_rel_mean":     float(np.mean(ci_arr)),
+            "ci_rel_max":      float(np.max(ci_arr)),
+        }
+
     def summary(self) -> str:
         n_idle     = sum(1 for d in self.drones if d.state == DroneState.IDLE)
         n_transit  = sum(1 for d in self.drones if d.state == DroneState.TRANSIT)
         n_sampling = sum(1 for d in self.drones if d.state == DroneState.SAMPLING)
         n_rth      = sum(1 for d in self.drones if d.state == DroneState.RTH)
         n_depleted = sum(1 for d in self.drones if d.battery_depleted)
+
+        # Live mean σ_Ūbar across nodes completed so far
+        sig_vals = [r["sigma_Ubar"] for r in self.node_results.values()]
+        sig_str  = f"{np.mean(sig_vals):.4f}" if sig_vals else "—"
+
         return (
             f"t={self.elapsed_s:7.1f}s  "
             f"nodes={self.n_measured:>3}/{N_TARGETS}  "
             f"assigns={self._assignments_made:>4}  "
+            f"mean_σ_Ūbar={sig_str} m/s  "
             f"[IDLE={n_idle} TRANSIT={n_transit} "
             f"SAMP={n_sampling} RTH={n_rth} DEP={n_depleted}]"
         )
@@ -764,6 +857,40 @@ def _smoke_test() -> None:
               f"({early_stop / 60:.2f} min)")
     else:
         print(f"  {env.n_measured}/{N_TARGETS} nodes measured within budget.")
+
+    # ── GPR noise variance report ──────────────────────────────────────────────
+    print()
+    print("  GPR Heteroscedastic Noise Variances (σ²_n per node)")
+    print("  " + "─" * 68)
+    print(f"  {'Node':>5}  {'x':>7}  {'y':>7}  {'z':>7}  "
+          f"{'Ū [m/s]':>9}  {'σ²_u':>9}  {'var_Ūbar':>10}  {'σ_Ūbar':>8}  {'CI%':>6}")
+    print("  " + "─" * 68)
+
+    for nid in sorted(env.node_results.keys()):
+        r   = env.node_results[nid]
+        pos = r["position"]
+        print(
+            f"  {nid:>5}  "
+            f"{pos[0]:>7.2f}  {pos[1]:>7.2f}  {pos[2]:>7.2f}  "
+            f"{r['mean_est']:>9.4f}  "
+            f"{r['var_u']:>9.5f}  "
+            f"{r['var_Ubar']:>10.6f}  "
+            f"{r['sigma_Ubar']:>8.5f}  "
+            f"{r['ci_rel_final']*100:>5.1f}%"
+        )
+
+    print("  " + "─" * 68)
+    ns = env.noise_variance_summary()
+    if ns["n_nodes"] > 0:
+        print(f"  Nodes completed  : {ns['n_nodes']}")
+        print(f"  var_Ubar  min    : {ns['var_Ubar_min']:.6f}  m²/s²")
+        print(f"  var_Ubar  max    : {ns['var_Ubar_max']:.6f}  m²/s²")
+        print(f"  var_Ubar  mean   : {ns['var_Ubar_mean']:.6f}  m²/s²")
+        print(f"  var_Ubar  median : {ns['var_Ubar_median']:.6f}  m²/s²")
+        print(f"  var_Ubar  std    : {ns['var_Ubar_std']:.6f}  m²/s²")
+        print(f"  σ_Ūbar    mean   : {ns['sigma_Ubar_mean']:.5f}  m/s")
+        print(f"  CI_rel    mean   : {ns['ci_rel_mean']*100:.2f} %")
+        print(f"  CI_rel    max    : {ns['ci_rel_max']*100:.2f} %")
     print("=" * 72)
 
 
