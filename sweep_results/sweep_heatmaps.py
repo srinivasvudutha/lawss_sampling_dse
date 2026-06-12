@@ -8,9 +8,9 @@ import matplotlib.pyplot as plt
 # CONFIG
 # ============================================================================
 
-CSV_FILENAME = "inlet_swee_15d_30t_6n.csv"
+CSV_FILENAME = "wake_mega_sweep_results.csv"
 
-NODES_COL = "nodes_completed"
+NODES_COL = "nodes_measured"
 TIME_COL = "conv_time_mean_s"
 
 GROUP_X = "I_U"

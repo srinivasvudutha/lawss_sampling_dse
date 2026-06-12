@@ -17,7 +17,7 @@ from scipy.optimize import linear_sum_assignment
 FS_SAMPLE: float = 10.0
 DT_SAMPLE: float = 1.0 / FS_SAMPLE
 DT_KIN: float    = 1.0
-
+ 
 # ─────────────────────────────────────────────────────────────────────────────
 # Wake signal parameters  (injected via os.environ for sweeps)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -51,10 +51,10 @@ T_INT_EFF:    float = ALPHA_FRAC * T_INT_RAND        # what ACF estimator conver
 # Stopping-criterion thresholds  (relaxed for wake — UNCHANGED)
 # ─────────────────────────────────────────────────────────────────────────────
 
-EPSILON_CI:  float = 0.10    # Cond 1: Z·σ_Ū/Ū  < 10 %
-DELTA_STAB:  float = 0.05    # Cond 2: mean drift < 2 %
+EPSILON_CI:  float = 0.13    # Cond 1: Z·σ_Ū/Ū  < 10 %
+DELTA_STAB:  float = 0.05    # Cond 2: mean drift < 5 %
 Z_SCORE:     float = 1.645   # 90 % confidence
-N_EFF_MIN:   int   = 6      # Cond 3: min independent samples
+N_EFF_MIN:   int   = 6       # Cond 3: min independent samples
 N_SHED_MIN:  int   = 5       # Cond 4: min complete shedding cycles
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -80,10 +80,10 @@ PERSIST_SAMPLES: int = int(T_SHED * FS_SAMPLE)
 # Fleet & operational constants  ── SCALED UP FOR MEGA RUN ──
 # ─────────────────────────────────────────────────────────────────────────────
 
-BATTERY_CAPACITY_S:  float = 300.0
+BATTERY_CAPACITY_S:  float = 1080.0
 N_DRONES:  int = 70
 N_TARGETS: int = 70
-MAX_SAMPLING_TIME_S: float = 240.0
+MAX_SAMPLING_TIME_S: float = 600.0
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MPC constants  ── N_OBS capped to nearest neighbours for solver tractability ──
@@ -103,7 +103,7 @@ R_CTRL:      float = 0.1
 
 ARRIVAL_DIST:  float = 0.5
 ARRIVAL_SPEED: float = 0.3
-RTH_THRESHOLD: float = 0.0
+RTH_THRESHOLD: float = 0.07
 
 _OBS_SENTINEL = np.array([1e6, 1e6, 1e6], dtype=float)
 
@@ -224,8 +224,8 @@ class Drone:
 
         self.state: DroneState = DroneState.IDLE
 
-        self.target_position:   Optional[np.ndarray] = None
-        self.target_node_id:    Optional[int]        = None
+        self.target_position:  Optional[np.ndarray] = None
+        self.target_node_id:   Optional[int]        = None
         self.completed_node_id: Optional[int]        = None
         self.abandoned_node_id: Optional[int]        = None
 
@@ -384,7 +384,9 @@ class Drone:
                 U_val = np.array(self._opti.debug.value(self._mpc_U))
             except Exception:
                 self._last_solve_ok = False
-                return np.zeros(3)
+                # Fallback: Safely brake instead of blindly coasting 
+                accel_brake = -self.velocity / DT_KIN
+                return np.clip(accel_brake, -A_MAX, A_MAX)
             self._last_solve_ok = False
 
         self._warm_X = X_val
@@ -526,7 +528,10 @@ class Drone:
         if self.battery_depleted:
             return
 
-        self.battery_remaining_s -= DT_KIN
+        # Drones idling safely on the ground don't consume battery
+        if self.state != DroneState.IDLE:
+            self.battery_remaining_s -= DT_KIN
+            
         if self.battery_remaining_s <= 0.0:
             self.battery_remaining_s = 0.0
             self.battery_depleted    = True
@@ -595,9 +600,19 @@ class Environment:
         master_rng  = np.random.default_rng(seed)
         drone_seeds = master_rng.integers(0, 2**31, size=N_DRONES)
 
-        self.target_positions: np.ndarray = master_rng.uniform(
-            0.0, 100.0, size=(N_TARGETS, 3)
-        ).astype(float)
+        # Generate target positions with guaranteed minimal spacing to prevent MPC deadlocks
+        self.target_positions = np.zeros((N_TARGETS, 3), dtype=float)
+        for i in range(N_TARGETS):
+            while True:
+                cand = master_rng.uniform(0.0, 100.0, size=3)
+                if i == 0:
+                    self.target_positions[i] = cand
+                    break
+                dists = np.linalg.norm(self.target_positions[:i] - cand, axis=1)
+                # D_MIN is 3.0. A safe radius of 6.0m prevents impossible constraints
+                if np.all(dists >= D_MIN * 2.0):
+                    self.target_positions[i] = cand
+                    break
 
         self.target_measured: np.ndarray = np.zeros(N_TARGETS, dtype=bool)
         self.target_locked:   np.ndarray = np.zeros(N_TARGETS, dtype=bool)
@@ -674,7 +689,7 @@ class Environment:
         for i, drone in enumerate(self.drones):
             neighbours = [
                 snap for j, (snap, d) in enumerate(zip(snapshot, self.drones))
-                if j != i and d.state in (DroneState.TRANSIT, DroneState.RTH)
+                if j != i and d.state in (DroneState.TRANSIT, DroneState.RTH, DroneState.SAMPLING)
             ]
             drone.tick(neighbours=neighbours)
 

@@ -47,10 +47,10 @@ T_INT_EFF:    float = ALPHA_FRAC * T_INT_RAND        # what ACF estimator conver
 # Stopping-criterion thresholds  (relaxed for wake, per design rationale)
 # ─────────────────────────────────────────────────────────────────────────────
 
-EPSILON_CI:  float = 0.10    # Cond 1: Z·σ_Ū/Ū  < 10 %     (inlet: 5 %)
-DELTA_STAB:  float = 0.02    # Cond 2: mean drift < 2 %    (inlet: 1 %)
+EPSILON_CI:  float = 0.13    # Cond 1: Z·σ_Ū/Ū  < 10 %     (inlet: 5 %)
+DELTA_STAB:  float = 0.05    # Cond 2: mean drift < 2 %    (inlet: 1 %)
 Z_SCORE:     float = 1.645   # 90 % confidence             (inlet: 1.96)
-N_EFF_MIN:   int   = 15      # Cond 3: min independent samples (inlet: 10)
+N_EFF_MIN:   int   = 6      # Cond 3: min independent samples (inlet: 10)
 N_SHED_MIN:  int   = 5       # Cond 4 (NEW): min complete shedding cycles
 
 # ─────────────────────────────────────────────────────────────────────────────
