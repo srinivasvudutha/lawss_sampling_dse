@@ -555,10 +555,8 @@ class Drone:
         if self.battery_depleted:
             return
 
-        # Drones idling safely on the ground don't consume battery
-        if self.state != DroneState.IDLE:
-            self.battery_remaining_s -= DT_KIN
-            
+        self.battery_remaining_s -= DT_KIN
+
         if self.battery_remaining_s <= 0.0:
             self.battery_remaining_s = 0.0
             self.battery_depleted    = True

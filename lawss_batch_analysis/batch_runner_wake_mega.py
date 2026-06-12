@@ -408,7 +408,7 @@ def run_batch(
     df = df.sort_values(by=["I_U", "T_INT", "seed"]).reset_index(drop=True)
 
     try:
-        df.to_csv(output, index=False, float_format="%.3f")
+        df.to_csv(output, index=False, float_format="%.6g")
         if not quiet:
             print(f"\n  Results written → {os.path.abspath(output)}")
     except OSError as exc:
