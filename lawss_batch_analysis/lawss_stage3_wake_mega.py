@@ -441,7 +441,7 @@ class Drone:
         u_rand = self._u_rand_prime
 
         t_local = self.samples_this_run * DT_SAMPLE
-        u_shed  = SIGMA_RAND * np.sqrt(2.0) * np.sin(
+        u_shed  = SIGMA_SHED * np.sqrt(2.0) * np.sin(
             2.0 * np.pi * F_SHED * t_local + self.phase0
         )
         return U_WAKE + u_rand + u_shed
