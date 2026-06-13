@@ -28,7 +28,7 @@ SIGMA_U: float   = I_U * U_MEAN
 PHI: float       = np.exp(-DT_SAMPLE / T_INT)
 SIGMA_EPS: float = SIGMA_U * np.sqrt(1.0 - PHI**2)
 
-EPSILON_CI: float = 0.05
+EPSILON_CI: float = 0.09
 DELTA_STAB: float = 0.05
 Z_SCORE: float    = 1.645
 N_EFF_MIN: int    = 6
@@ -47,7 +47,7 @@ BATTERY_CAPACITY_S: float = 1080.0   # 18-min battery
 N_DRONES:  int = 15    
 N_TARGETS: int = 30
 
-MAX_SAMPLING_TIME_S: float = 600   # 3-minute hard cap per run (unchanged)
+MAX_SAMPLING_TIME_S: float = 1080   # 3-minute hard cap per run (unchanged)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MPC constants
