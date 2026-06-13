@@ -31,7 +31,7 @@ HEATMAP_SPECS = [
         "title":    "Average Maximum Convergence Time",
         "label":    "Average Maximum Convergence Time [s]",
         "filename": "heatmap_mean_max_conv_time",
-        "cmap":     "inferno",
+        "cmap":     "viridis",
         "fmt":      ".1f",
     },
 ]
