@@ -20,16 +20,16 @@ import seaborn as sns
 HEATMAP_SPECS = [
     {
         "column":   "total_survey_time_s",
-        "title":    "Mean Total Simulation Time",
-        "label":    "Mean Total Simulation Time (s)",
+        "title":    "Average Total Simulation Time",
+        "label":    "Average Total Simulation Time [s]",
         "filename": "heatmap_mean_total_sim_time",
         "cmap":     "viridis",
         "fmt":      ".1f",
     },
     {
         "column":   "conv_time_max_s",
-        "title":    "Mean Maximum Convergence Time",
-        "label":    "Mean Max Convergence Time (s)",
+        "title":    "Average Maximum Convergence Time",
+        "label":    "Average Maximum Convergence Time [s]",
         "filename": "heatmap_mean_max_conv_time",
         "cmap":     "plasma",
         "fmt":      ".1f",
@@ -44,20 +44,22 @@ HEATMAP_SPECS = [
 def _pivot_mean(df: pd.DataFrame, column: str) -> pd.DataFrame:
     """
     Aggregate *column* by mean over all seeds, then pivot to a
-    (I_U × T_INT) matrix suitable for sns.heatmap.
+    (T_INT × I_U) matrix suitable for sns.heatmap.
 
-    Rows    → I_U   (turbulence intensity),  ascending top→bottom
-    Columns → T_INT (integral time scale),   ascending left→right
+    Rows    → T_INT (integral time scale),   ascending top→bottom (high→low in heatmap view)
+    Columns → I_U   (turbulence intensity),  ascending left→right
     """
     agg = (
         df.groupby(["I_U", "T_INT"])[column]
         .mean()
         .reset_index()
     )
-    pivot = agg.pivot(index="I_U", columns="T_INT", values=column)
+    # Flipped index and columns here
+    pivot = agg.pivot(index="T_INT", columns="I_U", values=column)
+    
     # Sort axes so the heatmap reads naturally
-    pivot = pivot.sort_index(ascending=False)          # I_U high → low top→bottom
-    pivot = pivot.sort_index(axis=1, ascending=True)   # T_INT low → high left→right
+    pivot = pivot.sort_index(ascending=False)          # T_INT high → low top→bottom
+    pivot = pivot.sort_index(axis=1, ascending=True)   # I_U low → high left→right
     return pivot
 
 
@@ -72,7 +74,8 @@ def _make_heatmap(
 ) -> None:
     """Render and save a single annotated heatmap."""
 
-    fig, ax = plt.subplots(figsize=(11, 7))
+    # 🌟 MODIFIED: Updated figsize to a standard 16:9 ratio (16 inches by 9 inches)
+    fig, ax = plt.subplots(figsize=(16, 9))
 
     # ── seaborn heatmap ──────────────────────────────────────────────────────
     sns.heatmap(
@@ -83,18 +86,19 @@ def _make_heatmap(
         fmt=fmt,
         linewidths=0.4,
         linecolor="white",
-        cbar_kws={"label": cbar_label, "shrink": 0.85},
+        # 🌟 MODIFIED: Adjusted shrink to 0.8 to fit nicely within the 9-inch height
+        cbar_kws={"label": cbar_label, "shrink": 0.8},
     )
 
-    # ── axes labels & ticks ──────────────────────────────────────────────────
-    ax.set_xlabel("Integral Time Scale  $T_{int}$ (s)", fontsize=12, labelpad=8)
-    ax.set_ylabel("Turbulence Intensity  $I_u$", fontsize=12, labelpad=8)
+    # ── axes labels & ticks (Flipped here) ───────────────────────────────────
+    ax.set_xlabel("Turbulence Intensity  $I_u$", fontsize=12, labelpad=10)
+    ax.set_ylabel("Integral Time Scale  $T_{int}$ (s)", fontsize=12, labelpad=10)
 
-    # Format tick labels
-    x_labels = [f"{float(t):.1f}" for t in pivot.columns]
-    y_labels = [f"{float(i):.2f}" for i in pivot.index]
-    ax.set_xticklabels(x_labels, rotation=0, fontsize=9)
-    ax.set_yticklabels(y_labels, rotation=0, fontsize=9)
+    # Format tick labels based on flipped index/columns
+    x_labels = [f"{float(i):.2f}" for i in pivot.columns]
+    y_labels = [f"{float(t):.1f}" for t in pivot.index]
+    ax.set_xticklabels(x_labels, rotation=0, fontsize=10)
+    ax.set_yticklabels(y_labels, rotation=0, fontsize=10)
 
     # ── title ────────────────────────────────────────────────────────────────
     n_trials_str = ""
@@ -111,9 +115,9 @@ def _make_heatmap(
 
     ax.set_title(
         f"{title}{n_trials_str}",
-        fontsize=14,
+        fontsize=15,
         fontweight="bold",
-        pad=14,
+        pad=16,
     )
 
     fig.tight_layout()
@@ -133,7 +137,8 @@ def _trial_count_pivot(df: pd.DataFrame, column: str) -> pd.DataFrame:
         .reset_index()
         .rename(columns={column: "n"})
     )
-    pivot = counts.pivot(index="I_U", columns="T_INT", values="n")
+    # Flipped index and columns here to match _pivot_mean
+    pivot = counts.pivot(index="T_INT", columns="I_U", values="n")
     pivot = pivot.sort_index(ascending=False).sort_index(axis=1, ascending=True)
     return pivot
 
@@ -244,10 +249,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sweep_heatmaps.py",
         description=(
-            "Generate I_U × T_INT heatmaps from a LAWSS mega-sweep CSV.\n"
+            "Generate T_INT × I_U heatmaps from a LAWSS mega-sweep CSV.\n"
             "Produces:\n"
-            "  • Mean total simulation time per (I_U, T_INT) cell\n"
-            "  • Mean maximum convergence time per (I_U, T_INT) cell\n\n"
+            "  • Mean total simulation time per (T_INT, I_U) cell\n"
+            "  • Mean maximum convergence time per (T_INT, I_U) cell\n\n"
             "Examples:\n"
             "  # directory contains one CSV — auto-detected:\n"
             "  python sweep_heatmaps.py srini_heatmaps/\n\n"

@@ -28,7 +28,7 @@ SIGMA_U: float   = I_U * U_MEAN
 PHI: float       = np.exp(-DT_SAMPLE / T_INT)
 SIGMA_EPS: float = SIGMA_U * np.sqrt(1.0 - PHI**2)
 
-EPSILON_CI: float = 0.08
+EPSILON_CI: float = 0.05
 DELTA_STAB: float = 0.05
 Z_SCORE: float    = 1.645
 N_EFF_MIN: int    = 6
@@ -47,7 +47,7 @@ BATTERY_CAPACITY_S: float = 1080.0   # 18-min battery
 N_DRONES:  int = 15    
 N_TARGETS: int = 30
 
-MAX_SAMPLING_TIME_S: float = 360   # 3-minute hard cap per run (unchanged)
+MAX_SAMPLING_TIME_S: float = 600   # 3-minute hard cap per run (unchanged)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MPC constants
@@ -364,7 +364,7 @@ class Drone:
                 cov_lag     = s.L_mxy - s.L_mux * s.L_muy
                 var_lag     = max(s.L_mx2 - s.L_mux**2, 1e-12)
                 rho1        = np.clip(cov_lag / var_lag, 1e-6, 1.0 - 1e-6)
-                T_new       = -DT_SAMPLE / np.log(rho1)
+                T_new       = DT_SAMPLE * rho1 / (1.0 - rho1)
                 s.T_int_est = EMA_ALPHA * T_new + (1.0 - EMA_ALPHA) * s.T_int_est
 
         s.mean_hist[s.hist_ptr % STAB_WIN] = s.wf_mean
@@ -385,17 +385,16 @@ class Drone:
 
         # ── ADAPTIVE STAB_WIN: anchor to current T_int estimate ──────────────
         adaptive_win = max(int(5.0 * s.T_int_est / DT_SAMPLE), 50)
-        actual_win   = min(adaptive_win, STAB_WIN) # Clamp to array size limit
+        actual_win   = min(adaptive_win, STAB_WIN)  # clamp to array size
 
-        # Step backward from the current write head, wrapping around
-        oldest_ptr   = (s.hist_ptr - actual_win) % STAB_WIN
-        oldest       = s.mean_hist[oldest_ptr]
+        cond2 = False
+        if s.hist_ptr >= actual_win:               # buffer has enough history
+            oldest_ptr = (s.hist_ptr - actual_win) % STAB_WIN
+            oldest     = s.mean_hist[oldest_ptr]
+            if np.isfinite(oldest):
+                stab  = abs(s.wf_mean - oldest) / max(abs(s.wf_mean), 1e-9)
+                cond2 = stab < DELTA_STAB
         # ─────────────────────────────────────────────────────────────────────
-        if np.isfinite(oldest):
-            stab  = abs(s.wf_mean - oldest) / max(abs(s.wf_mean), 1e-9)
-            cond2 = stab < DELTA_STAB
-        else:
-            cond2 = False
 
         return cond1, cond2, cond3
 
@@ -456,7 +455,7 @@ class Drone:
 
         elif self.state == DroneState.SAMPLING:
             # Generate multiple 10Hz samples spanning the 1s kinematic step
-            num_samples = int(DT_KIN / DT_SAMPLE)
+            num_samples = int(round(DT_KIN / DT_SAMPLE))
             for _ in range(num_samples):
                 u      = self._generate_sample()
                 u_prev = u_prev_store[0]
