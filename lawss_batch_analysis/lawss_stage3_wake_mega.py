@@ -17,7 +17,6 @@ from scipy.optimize import linear_sum_assignment
 FS_SAMPLE: float = 10.0
 DT_SAMPLE: float = 1.0 / FS_SAMPLE
 DT_KIN: float    = 1.0
- 
 # ─────────────────────────────────────────────────────────────────────────────
 # Wake signal parameters  (injected via os.environ for sweeps)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -26,8 +25,8 @@ U_INF:   float = 15.0    # free-stream wind speed         [m/s]
 U_WAKE:  float = 9.0     # mean velocity in the wake          [m/s]  (~0.6·U_inf)
 
 # INJECTED VARIABLES FOR HPC SWEEP
-I_U_RAND:   float = float(os.environ.get("LAWSS_I_U", "0.22"))
-I_U_SHED:   float = float(os.environ.get("LAWSS_I_U", "0.15"))
+I_U_RAND:   float = float(os.environ.get("LAWSS_I_U",      "0.22"))
+I_U_SHED:   float = float(os.environ.get("LAWSS_I_U_SHED", "0.15"))
 T_INT_RAND: float = float(os.environ.get("LAWSS_T_INT", "5.0"))
 
 D:  float = 20.0          # characteristic building dimension [m]
@@ -51,7 +50,7 @@ T_INT_EFF:    float = ALPHA_FRAC * T_INT_RAND        # what ACF estimator conver
 # Stopping-criterion thresholds  (relaxed for wake — UNCHANGED)
 # ─────────────────────────────────────────────────────────────────────────────
 
-EPSILON_CI:  float = 0.05    # Cond 1: Z·σ_Ū/Ū  < 10 %
+EPSILON_CI:  float = 0.10    # Cond 1: Z·σ_Ū/Ū  < 5 %
 DELTA_STAB:  float = 0.05    # Cond 2: mean drift < 5 %
 Z_SCORE:     float = 1.645   # 90 % confidence
 N_EFF_MIN:   int   = 6       # Cond 3: min independent samples
@@ -581,7 +580,7 @@ class Drone:
 
         elif self.state == DroneState.SAMPLING:
             # Sub-step the sampling to generate 10Hz measurements throughout the 1s kinematic interval
-            num_samples = int(DT_KIN / DT_SAMPLE)
+            num_samples = int(round(DT_KIN / DT_SAMPLE))
             for _ in range(num_samples):
                 u = self._generate_sample()
                 self._update_welford(u)

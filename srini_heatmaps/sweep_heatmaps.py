@@ -23,7 +23,7 @@ HEATMAP_SPECS = [
         "title":    "Average Total Simulation Time",
         "label":    "Average Total Simulation Time [s]",
         "filename": "heatmap_mean_total_sim_time",
-        "cmap":     "viridis",
+        "cmap":     "plasma",
         "fmt":      ".1f",
     },
     {
@@ -31,7 +31,7 @@ HEATMAP_SPECS = [
         "title":    "Average Maximum Convergence Time",
         "label":    "Average Maximum Convergence Time [s]",
         "filename": "heatmap_mean_max_conv_time",
-        "cmap":     "plasma",
+        "cmap":     "inferno",
         "fmt":      ".1f",
     },
 ]

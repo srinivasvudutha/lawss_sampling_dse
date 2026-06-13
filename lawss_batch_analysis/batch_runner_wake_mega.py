@@ -18,7 +18,7 @@ import pandas as pd
 # Default CLI values
 # ─────────────────────────────────────────────────────────────────────────────
 
-DEFAULT_N_TRIALS:   int = 1
+DEFAULT_N_TRIALS:   int = 10
 DEFAULT_SEED_START: int = 0
 DEFAULT_OUTPUT:     str = "wake_mega_sweep_results.csv"
 DEFAULT_WORKERS:    int = 10
@@ -39,7 +39,7 @@ def _worker_init() -> None:
         "MKL_NUM_THREADS",
         "NUMEXPR_NUM_THREADS",
         "VECLIB_MAXIMUM_THREADS",
-        "GOTO_NUM_THREADS",
+        "BLIS_NUM_THREADS",
     ):
         os.environ[var] = "1"
 
@@ -77,10 +77,19 @@ def _run_trial(args: tuple) -> Dict:
             "total_assignments": 0,
             "sim_elapsed_s":     float("nan"),
             "total_survey_time_s": float("nan"),
+            "fleet_distance_m":  float("nan"),
             "conv_time_min_s":   float("nan"),
             "conv_time_max_s":   float("nan"),
             "conv_time_mean_s":  float("nan"),
             "wall_time_s":       0.0,
+            "var_Ubar_min":      float("nan"),
+            "var_Ubar_max":      float("nan"),
+            "var_Ubar_mean":     float("nan"),
+            "var_Ubar_median":   float("nan"),
+            "var_Ubar_std":      float("nan"),
+            "sigma_Ubar_mean":   float("nan"),
+            "ci_rel_mean":       float("nan"),
+            "ci_rel_max":        float("nan"),
             "error":             f"Import failed: {exc}",
         }
 
@@ -90,8 +99,23 @@ def _run_trial(args: tuple) -> Dict:
         env          = Environment(seed=seed)
         budget_ticks = int(BATTERY_CAPACITY_S / DT_KIN)
 
+        n_drones     = len(env.drones)
+        prev_pos     = _np.array(
+            [d.position for d in env.drones], dtype=float
+        )
+        fleet_dist_m = 0.0
+
         for _ in range(budget_ticks):
             env.step()
+
+            curr_pos = _np.array(
+                [d.position for d in env.drones], dtype=float
+            )
+            fleet_dist_m += float(
+                _np.sum(_np.linalg.norm(curr_pos - prev_pos, axis=1))
+            )
+            prev_pos[:] = curr_pos
+
             if env.all_measured:
                 break
 
@@ -130,6 +154,7 @@ def _run_trial(args: tuple) -> Dict:
             "total_assignments": int(env._assignments_made),
             "sim_elapsed_s":     round(float(env.elapsed_s),    3),
             "total_survey_time_s": total_survey_time_s,
+            "fleet_distance_m":  round(float(fleet_dist_m),     2),
             "conv_time_min_s":   round(c_min, 2),
             "conv_time_max_s":   round(c_max, 2),
             "conv_time_mean_s":  round(c_mean, 2),
@@ -157,6 +182,7 @@ def _run_trial(args: tuple) -> Dict:
             "total_assignments": 0,
             "sim_elapsed_s":     float("nan"),
             "total_survey_time_s": float("nan"),
+            "fleet_distance_m":  float("nan"),
             "conv_time_min_s":   float("nan"),
             "conv_time_max_s":   float("nan"),
             "conv_time_mean_s":  float("nan"),
@@ -195,7 +221,8 @@ def _print_header(total_trials: int, workers: int, output: str) -> None:
     print()
     print(_hr("═"))
     print("  LAWSS  ·  Mega-Scale Wake Grid Search Harness")
-    print("  Grid: I_U [4] x T_INT [4]  -> 16 combinations")
+    print(f"  Grid: I_U [{len(I_U_GRID)}] x T_INT [{len(T_INT_GRID)}]  -> "
+          f"{len(I_U_GRID) * len(T_INT_GRID)} combinations")
     print(_hr("─"))
     print(f"  Total Trials : {total_trials}")
     print(f"  Workers      : {workers}  (logical CPUs on this host: {os.cpu_count()})")
@@ -209,10 +236,11 @@ def _print_trial(idx: int, total: int, result: Dict) -> None:
     t_int     = result["T_INT"]
     seed      = result["seed"]
     nodes     = result["nodes_measured"]
-    n_targets = result.get("n_targets", nodes)   # fallback: at least as many as measured
+    n_targets = result.get("n_targets", nodes)
     assn      = result["total_assignments"]
     sim_t     = result["sim_elapsed_s"]
     cmean     = result["conv_time_mean_s"]
+    fdist     = result.get("fleet_distance_m", float("nan"))
     wall      = result["wall_time_s"]
     err       = result["error"]
 
@@ -222,10 +250,12 @@ def _print_trial(idx: int, total: int, result: Dict) -> None:
         detail = f"IU={i_u:.2f} T={t_int:<3} seed={seed:<5}  ERROR: {err.splitlines()[-1][:50]}"
     else:
         tag    = "✓"
+        dist_str = f"{fdist:.0f}m" if math.isfinite(fdist) else "—"
         detail = (
             f"IU={i_u:.2f} T={t_int:<3} seed={seed:<5}  "
             f"nodes={nodes:>3}/{n_targets}  "
             f"assigns={assn:>4}  "
+            f"dist={dist_str:<8}  "
             f"sim={_fmt_duration(sim_t):<10}  "
             f"mean_conv={cmean:>6.1f}s  "
             f"wall={wall:.1f}s"
@@ -241,6 +271,7 @@ def _print_summary(df: pd.DataFrame, n_failed: int, total_wall: float) -> None:
         ("Nodes Measured",    "nodes_measured",      ".1f", "nodes"),
         ("Total Assignments", "total_assignments",   ".1f", ""),
         ("Total Survey Time", "total_survey_time_s", ".1f", "s"),
+        ("Fleet Distance",    "fleet_distance_m",    ".1f", "m"),
         ("Conv Time Min",     "conv_time_min_s",     ".1f", "s"),
         ("Conv Time Max",     "conv_time_max_s",     ".1f", "s"),
         ("Conv Time Mean",    "conv_time_mean_s",    ".1f", "s"),
@@ -282,13 +313,6 @@ def _print_summary(df: pd.DataFrame, n_failed: int, total_wall: float) -> None:
     for m in metrics:
         print(_row(*m))
     print(_hr("─"))
-    print(f"  Total wall time  : {_fmt_duration(total_wall)}  ({total_wall:.1f} s)")
-
-    sim_sum = ok["sim_elapsed_s"].dropna().sum() if n_ok else 0.0
-    if total_wall > 0 and sim_sum > 0:
-        print(f"  Aggregate sim    : {sim_sum:.0f} s  "
-              f"|  speed-up : {sim_sum / total_wall:.1f}×")
-
     print(_hr("═"))
 
     # Highlighted single-line callout for the headline metric
@@ -371,6 +395,14 @@ def run_batch(
                     "conv_time_max_s":   float("nan"),
                     "conv_time_mean_s":  float("nan"),
                     "wall_time_s":       float("nan"),
+                    "var_Ubar_min":      float("nan"),
+                    "var_Ubar_max":      float("nan"),
+                    "var_Ubar_mean":     float("nan"),
+                    "var_Ubar_median":   float("nan"),
+                    "var_Ubar_std":      float("nan"),
+                    "sigma_Ubar_mean":   float("nan"),
+                    "ci_rel_mean":       float("nan"),
+                    "ci_rel_max":        float("nan"),
                     "error":             traceback.format_exc(),
                 }
 
@@ -391,6 +423,7 @@ def run_batch(
         "total_assignments",
         "sim_elapsed_s",
         "total_survey_time_s",
+        "fleet_distance_m",
         "conv_time_min_s",
         "conv_time_max_s",
         "conv_time_mean_s",
@@ -417,6 +450,13 @@ def run_batch(
     total_wall = time.perf_counter() - wall_t0
     if not quiet:
         _print_summary(df, n_failed, total_wall)
+        sim_sum = df["sim_elapsed_s"].dropna().sum()
+        if total_wall > 0:
+            speedup = sim_sum / total_wall
+            print(f"  Total wall time      : {_fmt_duration(total_wall)}  ({total_wall:.1f} s)")
+            print(f"  Aggregate sim time   : {sim_sum:.0f} s  "
+                  f"·  effective speed-up : {speedup:.1f}×")
+        print()
 
     return df
 
