@@ -51,7 +51,7 @@ T_INT_EFF:    float = ALPHA_FRAC * T_INT_RAND        # what ACF estimator conver
 # Stopping-criterion thresholds  (relaxed for wake — UNCHANGED)
 # ─────────────────────────────────────────────────────────────────────────────
 
-EPSILON_CI:  float = 0.13    # Cond 1: Z·σ_Ū/Ū  < 10 %
+EPSILON_CI:  float = 0.05    # Cond 1: Z·σ_Ū/Ū  < 10 %
 DELTA_STAB:  float = 0.05    # Cond 2: mean drift < 5 %
 Z_SCORE:     float = 1.645   # 90 % confidence
 N_EFF_MIN:   int   = 6       # Cond 3: min independent samples
@@ -83,7 +83,7 @@ PERSIST_SAMPLES: int = int(T_SHED * FS_SAMPLE)
 BATTERY_CAPACITY_S:  float = 1080.0
 N_DRONES:  int = 70
 N_TARGETS: int = 70
-MAX_SAMPLING_TIME_S: float = 600.0
+MAX_SAMPLING_TIME_S: float = 1080.0
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MPC constants  ── N_OBS capped to nearest neighbours for solver tractability ──
