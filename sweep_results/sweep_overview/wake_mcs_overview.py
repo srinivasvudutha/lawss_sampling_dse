@@ -7,7 +7,7 @@ import seaborn as sns
 # CHOOSE YOUR COLORMAP HERE
 # Options include: 'viridis', 'plasma', 'inferno', 'magma', 'cividis', 'YlGn_r'
 # ==========================================
-colormap_choice = "magma"
+colormap_choice = "plasma"
 output_filename = f"wake_mcs_overview_magma.png"
 
 # 1. Define the updated axes data from the image
@@ -64,13 +64,13 @@ sns.heatmap(
     linewidths=0.5,
     linecolor="black",
     cbar=True,
-    cbar_kws={"label": "Convergence Limit (%)"},
+    cbar_kws={"label": r"Epsilon $\epsilon$ (%)"},
     ax=ax,
 )
 
 # 7. Labels, updated title, and visual formatting
 plt.title(
-    "WAKE MONTE CARLO SIMULATION 6 MIN CONVERGENCE LIMIT",
+    "Monte Carlo: Optimal Epsilon for Wake Drones",
     fontsize=14,
     fontweight="bold",
     pad=20,

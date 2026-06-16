@@ -64,13 +64,13 @@ sns.heatmap(
     linewidths=0.5,
     linecolor="black",
     cbar=True,
-    cbar_kws={"label": "Convergence Limit (%)"},
+    cbar_kws={"label": r"Epsilon $\epsilon$ (%)"},
     ax=ax,
 )
 
 # 7. Add Labels and Formatting
 plt.title(
-    "INLET MONTE CARLO SIMULATION 6 MIN CONVERGENCE LIMIT",
+    "Monte Carlo: Optimal Epsilon for Inlet Drones",
     fontsize=14,
     fontweight="bold",
     pad=20,
