@@ -41,17 +41,14 @@ def prepare_pie_data(labels, values):
 # -----------------------------------------------------------------------------
 # 2. Plot Configuration & Layout
 # -----------------------------------------------------------------------------
-fig, axes = plt.subplots(2, 2, figsize=(15, 13), facecolor='white')
-axes = axes.flatten()
+fig, axes = plt.subplots(1, 2, figsize=(15, 7.5), facecolor='white')
 
 titles = [
     r"Energy to Produce (Primary) [$\mathbf{MJ}$]",
-    r"Energy to Produce (Recycled) [$\mathbf{MJ}$]",
     r"GWP (Primary) [$\mathbf{kgCO_2}$]",
-    r"GWP (Recycled) [$\mathbf{kgCO_2}$]"
 ]
 
-all_metrics = [energy_primary, energy_recycled, gwp_primary, gwp_recycled]
+all_metrics = [energy_primary, gwp_primary]
 
 # -----------------------------------------------------------------------------
 # 3. Generating the Pie Charts
@@ -165,5 +162,5 @@ plt.suptitle('Environmental Impact Breakdown Per Drone', fontsize=19, weight='bo
 plt.tight_layout(rect=[0, 0, 1, 0.96])
 
 # Save the visualization
-plt.savefig('/mnt/user-data/outputs/environmental_impact_breakdown.png', dpi=300, bbox_inches='tight')
+plt.savefig('environmental_impact_breakdown.png', dpi=600, bbox_inches='tight')
 print("Saved.")
